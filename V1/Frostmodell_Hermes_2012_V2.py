@@ -127,9 +127,9 @@ if __name__ == "__main__":
 
     # Zielzeit
     t_end = 120.0 * 60.0  # 120 min in s
-    s_end = 1
+    s_end = 30
 
-    s_array = np.linspace(0, s_end, 500)
+    s_array = np.linspace(1e-9, s_end, 10000)
 
     X = np.array([X_of_s(s, geom, air, op, hp) for s in s_array])
     results = [frost_state_at_s(s, geom, air, op, hp) for s in s_array]
@@ -139,6 +139,19 @@ if __name__ == "__main__":
 
     dt_ds = (rho_f * air.c_p * geom.L ** 2) / k_f
     t_array = np.concatenate([[0.0], np.cumsum(0.5 * (dt_ds[1:] + dt_ds[:-1]) * np.diff(s_array))])
+
+    # X vs rech
+
+    rech = (theta/(1 + theta)) * (s_array/X)  # elementweise
+
+    plt.plot(X, rech, label=f"Tw = {T_w:.0f}°C")
+    plt.xlabel("X")
+    #plt.ylabel("")
+    plt.title("Hermes (2012)")
+    plt.grid(True)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
 
     # Xs
 
