@@ -70,7 +70,7 @@ def frost_state_at_s(s: float, geom: Flatplate, air: AirProperty, op: OpPoint, h
     Ja_val = Ja(air, op, hp)
 
     for _ in range(itmax):
-        rho_f = hp.a0 * math.exp(hp.a1*Ts + hp.a2)
+        rho_f = hp.a0 * math.exp(hp.a1*(Ts+273.15) + hp.a2)
         k_f  = hp.k_f0 + hp.beta * rho_f
         Bi  = Nu_val * X * (air.k_a / k_f)
         theta  = Bi * (1.0 + 1.0/Ja_val)
@@ -118,7 +118,7 @@ if __name__ == "__main__":
     i_sv = 2.83e6    # J/kg
     beta = 3e-4
 
-    hp = HermesParams(a0=a0, a1=a1, a2=-0.615*T_w, k_f0=k_f0, i_sv=i_sv, beta=beta)
+    hp = HermesParams(a0=a0, a1=a1, a2=-0.615*(T_w+273.15), k_f0=k_f0, i_sv=i_sv, beta=beta)
 
     # Geometrie & Luft
     geom = Flatplate(L=0.10)  # 10 cm
@@ -127,9 +127,9 @@ if __name__ == "__main__":
 
     # Zielzeit
     t_end = 120.0 * 60.0  # 120 min in s
-    s_end = 1
+    s_end = 6
 
-    s_array = np.linspace(1e-9, s_end, 10000)
+    s_array = np.linspace(1e-9, s_end, 1000)
 
     X = np.array([X_of_s(s, geom, air, op, hp) for s in s_array])
     results = [frost_state_at_s(s, geom, air, op, hp) for s in s_array]
@@ -146,11 +146,12 @@ if __name__ == "__main__":
 
     plt.plot(X, rech, label=f"Tw = {T_w:.0f}°C")
     plt.xlabel("X")
-    #plt.ylabel("")
+    plt.ylabel("(Theta * Tau) / ((1 + Theta) * X)")
     plt.title("Hermes (2012)")
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
+    plt.xlim([0, 0.12])
     plt.show()
 
     # Xs
@@ -170,7 +171,7 @@ if __name__ == "__main__":
     plt.grid(True)
     plt.legend()
     plt.tight_layout()
-    plt.xlim([0, t_end / 60])
+    #plt.xlim([0, t_end / 60])
     plt.show()
 
     # Frost Oberflächentemperatur
