@@ -127,7 +127,7 @@ if __name__ == "__main__":
 
     # Zielzeit
     t_end = 120.0 * 60.0  # 120 min in s
-    s_end = 30
+    s_end = 1
 
     s_array = np.linspace(1e-9, s_end, 10000)
 
