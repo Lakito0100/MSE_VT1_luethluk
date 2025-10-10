@@ -70,7 +70,7 @@ def frost_state_at_s(s: float, geom: Flatplate, air: AirProperty, op: OpPoint, h
     Ja_val = Ja(air, op, hp)
 
     for _ in range(itmax):
-        rho_f = hp.a0 * math.exp(hp.a1*(Ts+273.15) + hp.a2)
+        rho_f = hp.a0 * math.exp(hp.a1*(Ts) + hp.a2)
         k_f  = hp.k_f0 + hp.beta * rho_f
         Bi  = Nu_val * X * (air.k_a / k_f)
         theta  = Bi * (1.0 + 1.0/Ja_val)
@@ -81,6 +81,7 @@ def frost_state_at_s(s: float, geom: Flatplate, air: AirProperty, op: OpPoint, h
 
     # If not converged, still return last iterate
     raise SystemExit("Frostzustand nicht konvergiert!")
+
 
 def s_of_t(t: float, geom: Flatplate, air: AirProperty, op: OpPoint, hp: HermesParams, s_old: float) -> float:
     Ts, rho_f, k_f, _, _ = frost_state_at_s(s_old, geom, air, op, hp)
@@ -100,133 +101,92 @@ if __name__ == "__main__":
 
     # Randbedingungen
     T_a = 16.0      # °C Lufttemperatur
-    T_w = -8.0     # °C Wandtemperatur
-    RH  = 0.8      # Relative Luftfeuchtigkeit in der Luft
+    T_w = -8.0      # °C Wandtemperatur
+    RH  = 0.8       # Relative Luftfeuchtigkeit
     u_a = 1.0       # m/s
-    p = 100000   # Pa
+    p = 100000      # Pa
 
+    # Feuchte-Luft
     w_w = HAPropsSI("W", "T", T_w+273.15, "P", p, "R", 1.0)
     w_a = HAPropsSI("W", "T", T_a+273.15, "P", p, "R", RH)
     w_tilde = w_a - w_w
-
     op = OpPoint(T_a=T_a, T_w=T_w, w_tilde=w_tilde, u_a=u_a)
 
-    # Hermes-Parameter (Paper)
+    # Hermes-Parameter (achte auf realistische Dichtekoeffizienten)
     a0   = 207.0
     a1   = 0.266
     k_f0 = 0.132     # W/mK
     i_sv = 2.83e6    # J/kg
     beta = 3e-4
-
-    hp = HermesParams(a0=a0, a1=a1, a2=-0.615*(T_w+273.15), k_f0=k_f0, i_sv=i_sv, beta=beta)
+    hp = HermesParams(a0=a0, a1=a1, a2=-0.615*(T_w),
+                      k_f0=k_f0, i_sv=i_sv, beta=beta)
 
     # Geometrie & Luft
-    geom = Flatplate(L=0.10)  # 10 cm
+    geom = Flatplate(L=0.1)
     k_feucht = HAPropsSI('K', 'T', T_a+273.15, 'P', p, 'R', RH)
     air  = AirProperty(k_a=k_feucht, c_p=1005.0, Pr=0.71, rho=1.2, mu=1.8e-5)
 
-    # Zielzeit
+    # Zielzeit (real)
     t_end = 120.0 * 60.0  # 120 min in s
-    s_end = 6
 
-    s_array = np.linspace(1e-9, s_end, 1000)
+    # Dimensionslose Zeit definieren
+    s0 = 1e-8
+    s_end = 1
+    N = 2000
+    s_array = np.linspace(1e-9, s_end, N)
 
-    X = np.array([X_of_s(s, geom, air, op, hp) for s in s_array])
+    # Zustände entlang s
     results = [frost_state_at_s(s, geom, air, op, hp) for s in s_array]
     Ts, rho_f, k_f, Bi, theta = map(np.asarray, zip(*results))
+    X = np.array([X_of_s(s, geom, air, op, hp) for s in s_array])
+    x_s = X * geom.L * 1e3  # mm
 
-    x_s = X * geom.L * 1e3
+    # dt/ds und t(s) via Trapezregel
+    #dt_ds = (k_f * air.c_p * geom.L**2) / rho_f
+    #t_array = np.zeros_like(s_array)
+    #t_array[1:] = np.cumsum(0.5 * (dt_ds[1:] + dt_ds[:-1]) * np.diff(s_array))
 
-    dt_ds = (rho_f * air.c_p * geom.L ** 2) / k_f
-    t_array = np.concatenate([[0.0], np.cumsum(0.5 * (dt_ds[1:] + dt_ds[:-1]) * np.diff(s_array))])
+    t_array = []
+    for s in s_array:
+        t_array.append(t_of_s(s, geom, air, op, hp))
 
-    # X vs rech
+    t_array = np.array(t_array)
 
-    rech = (theta/(1 + theta)) * (s_array/X)  # elementweise
+    # ---- Plots (wie gehabt) ----
 
+    rech = (theta/(1 + theta)) * (s_array / X)
     plt.plot(X, rech, label=f"Tw = {T_w:.0f}°C")
-    plt.xlabel("X")
-    plt.ylabel("(Theta * Tau) / ((1 + Theta) * X)")
+    plt.xlabel("X [-]")
+    plt.ylabel(r"$\frac{\theta}{1+\theta}\,\frac{s}{X}$ [-]")
     plt.title("Hermes (2012)")
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
     plt.xlim([0, 0.12])
-    plt.show()
-
-    # Xs
+    plt.ylim([0, 30])
+    plt.grid(True); plt.legend(); plt.tight_layout(); plt.show()
 
     plt.plot(t_array/60, x_s, label=f"Tw = {T_w:.0f}°C")
-    plt.text(
-        0.05, 0.95,
-        fr"$\tilde{{\omega}} = {w_tilde:.4f}, \; \tilde{{T}} = {T_tilde(op, hp):.1f}, \; Nu = {Nu(geom, air, op):.0f}$",
-        fontsize=12,
-        ha='left', va='top',
-        transform=plt.gca().transAxes
-    )
-
-    plt.xlabel("Zeit [min]")
-    plt.ylabel("Frostdicke $x_s$ [mm]")
+    plt.text(0.05, 0.95,
+             fr"$\tilde{{\omega}}={w_tilde:.4f},\;\tilde{{T}}={T_tilde(op,hp):.1f},\;Nu={Nu(geom,air,op):.0f}$",
+             fontsize=12, ha='left', va='top', transform=plt.gca().transAxes)
+    plt.xlabel("Zeit [min]"); plt.ylabel("Frostdicke $x_s$ [mm]")
     plt.title("Hermes (2012)")
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
-    #plt.xlim([0, t_end / 60])
-    plt.show()
-
-    # Frost Oberflächentemperatur
+    plt.grid(True); plt.legend(); plt.tight_layout(); plt.show()
 
     plt.plot(t_array/60, Ts, label=f"Tw = {T_w:.0f}°C")
-    plt.xlabel("Zeit [min]")
-    plt.ylabel("Frost Oberflächentemperatur [°C]")
+    plt.xlabel("Zeit [min]"); plt.ylabel("Frost-Oberflächentemperatur [°C]")
     plt.title("Hermes (2012)")
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
-    plt.xlim([0, t_end / 60])
-    plt.show()
+    plt.grid(True); plt.legend(); plt.tight_layout(); plt.show()
 
-    # Frostdichte
-
-    mask = t_array <= t_end
-    y_vis = rho_f[mask]
     plt.plot(t_array/60, rho_f, label=f"Tw = {T_w:.0f}°C")
-    plt.xlabel("Zeit [min]")
-    plt.ylabel("mittlere Frostdichte [kg/m^3]")
+    plt.xlabel("Zeit [min]"); plt.ylabel("mittlere Frostdichte [kg/m³]")
     plt.title("Hermes (2012)")
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
-    plt.xlim([0, t_end/60])
-    plt.ylim(y_vis.min()*0.98, y_vis.max()*1.02)
-    plt.show()
+    plt.grid(True); plt.legend(); plt.tight_layout(); plt.show()
 
-    # Frost Wärmeleitfähigkeit
-
-    mask = t_array <= t_end
-    y_vis = k_f[mask]
     plt.plot(t_array/60, k_f, label=f"Tw = {T_w:.0f}°C")
-    plt.xlabel("Zeit [min]")
-    plt.ylabel("Frost Wärmeleitfähigkeit [W/mK]")
+    plt.xlabel("Zeit [min]"); plt.ylabel("Frost Wärmeleitfähigkeit [W/mK]")
     plt.title("Hermes (2012)")
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
-    plt.xlim([0, t_end/60])
-    plt.ylim(y_vis.min()*0.98, y_vis.max()*1.02)
-    plt.show()
+    plt.grid(True); plt.legend(); plt.tight_layout(); plt.show()
 
-    # Biotzahl
-
-    mask = t_array <= t_end
-    y_vis = Bi[mask]
     plt.plot(t_array/60, Bi, label=f"Tw = {T_w:.0f}°C")
-    plt.xlabel("Zeit [min]")
-    plt.ylabel("Biotzahl")
+    plt.xlabel("Zeit [min]"); plt.ylabel("Biotzahl [-]")
     plt.title("Hermes (2012)")
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
-    plt.xlim([0, t_end/60])
-    plt.ylim(y_vis.min()*0.98, y_vis.max()*1.02)
-    plt.show()
+    plt.grid(True); plt.legend(); plt.tight_layout(); plt.show()
