@@ -2,10 +2,10 @@ from .state import SimState
 
 
 class ResultRecorder:
-    def __init__(self): self.data = {k: [] for k in ['t', 'fx']}
+    def __init__(self): self.data = {k: [] for k in ['t', 'x_frost']}
     def push(self, t, fx):
         self.data['t'].append(t)
-        self.data['fx'].append(fx)
+        self.data['x_frost'].append(fx)
 
 class Simulator:
     #def __init__(self):

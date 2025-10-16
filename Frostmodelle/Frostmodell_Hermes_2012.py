@@ -86,7 +86,7 @@ def X_of_s(s: float, geom: Flatplate, air: AirProperty, op: OpPoint, hp: HermesP
 
 # -------------- h(X), T_s, q_f  -------------------------
 # Eq. (18): h = Nu * (k/k_f0) * (1 + 1/Ja) * X    (k/k_f0 = 1/ktilde0)
-# Eq. (20): T_s = T_a - (T_a - T_w)/(1 + h)
+# Eq. (20): T_s = T_air - (T_air - T_wall)/(1 + h)
 # Eq. (13): q_f = a0 * exp(a1 * T_s + a2)
 
 def surface_state_from_s(s, geom, air, op, hp, b=3.0e-4, tol=1e-8, itmax=30):
@@ -101,13 +101,13 @@ def surface_state_from_s(s, geom, air, op, hp, b=3.0e-4, tol=1e-8, itmax=30):
     # 1) X(s) aus der geschlossenen Lösung
     X  = X_of_s(s, geom, air, op, hp)
     if X <= 0.0:
-        Ts = min(op.T_w, 0.0)
+        Ts = min(op.T_wall, 0.0)
         qf = hp.a0 * math.exp(hp.a1*Ts + hp.a2)
         h  = 0.0
         return X, h, Ts, qf
 
     Nu = Nu_Lienhard_turbulent_flat_plate(geom.L, air, op.u_a)
-    Ja = (air.c_p*(op.T_a - op.T_w))/(hp.i_sv*op.w_tilde) if op.w_tilde>0 else 1e12
+    Ja = (air.c_p * (op.T_air - op.T_wall)) / (hp.i_sv * op.w_tilde) if op.w_tilde > 0 else 1e12
 
     # Fixpunkt für kf(Ts)
     kf = hp.k_f0  # Start
@@ -115,7 +115,7 @@ def surface_state_from_s(s, geom, air, op, hp, b=3.0e-4, tol=1e-8, itmax=30):
         # h mit aktuellem kf: Eq. (18)
         h  = Nu * (air.k_a / max(kf, 1e-12)) * (1.0 + 1.0/Ja) * X
         # Ts: Eq. (20)
-        Ts = op.T_a - (op.T_a - op.T_w)/(1.0 + h)
+        Ts = op.T_air - (op.T_air - op.T_wall) / (1.0 + h)
         Ts = min(Ts, 0.0)  # Eisoberfläche
         # rho_f(Ts): Eq. (13)
         rho_f = hp.a0 * math.exp(hp.a1 * Ts + hp.a2)
