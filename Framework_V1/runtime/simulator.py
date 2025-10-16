@@ -13,7 +13,7 @@ class Simulator:
     def run(self, cfg, model):
         st = SimState()
         rec = ResultRecorder()
-        t = 0.0
+        t = 0.001
 
         while t <= cfg.t_end:
             fx = model.testmodell_fx_at_t(con=cfg, t=t)

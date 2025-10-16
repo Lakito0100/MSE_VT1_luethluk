@@ -11,7 +11,7 @@ cfg = CaseConfig(
     p_atm = 100000,     # Pa
     t_end = 10*60,      # s
     dt = 0.1,           # s
-    test_ceoff = 1e-6   # m/(s*K)
+    test_ceof = 3e-4   # m/(s*K)
 )
 
 geom = FlatPlate(

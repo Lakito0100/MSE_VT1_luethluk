@@ -8,4 +8,4 @@ class CaseConfig:
     p_atm: float
     t_end: float
     dt: float
-    test_ceoff: float
+    test_ceof: float
