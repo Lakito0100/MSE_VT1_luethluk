@@ -12,15 +12,15 @@ cfg = CaseConfig(
     p_atm = 100000,     # Pa
     t_end = 10*60,      # s
     dt = 0.1,           # s
-    test_ceof = 3e-4    # m/(s*K)
+    test_ceof = 3e-5    # m/(s*K)
 )
 
 geom = LammellenRohrWU(
-    n_rippen= 10,           # -
-    l_rippen= 0.1,          # m
+    n_rippen= 4,           # -
+    l_rippen= 0.01,          # m
     rippen_dicke= 0.002,    # m
-    t_rippen= 0.1,          # m
-    d_rohr_a= 0.1,          # m
+    t_rippen= 0.01,          # m
+    d_rohr_a= 0.01,          # m
     rohr_dicke= 0.002       # m
 )
 

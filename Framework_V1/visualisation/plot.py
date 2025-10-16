@@ -46,7 +46,7 @@ def plot_finned_tube_side(he):
         ax.add_patch(fin)
 
     ax.set_aspect('equal', 'box')
-    ax.set_xlim(-1.1*Hfin, 1.1*Hfin)  # Breite
+    ax.set_xlim(-1.1*(Hfin/2), 1.1*(Hfin/2))  # Breite
     ax.set_ylim(-0.05*L, 1.05*L)      # Länge
     ax.set_xlabel("Breite [m]")
     ax.set_ylabel("Länge [m]")

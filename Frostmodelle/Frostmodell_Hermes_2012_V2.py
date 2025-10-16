@@ -79,7 +79,6 @@ def frost_state_at_s(s: float, geom: Flatplate, air: AirProperty, op: OpPoint, h
             return Ts_new, rho_f, k_f, Bi, theta
         Ts = Ts_new
 
-    # If not converged, still return last iterate
     raise SystemExit("Frostzustand nicht konvergiert!")
 
 
@@ -110,7 +109,7 @@ if __name__ == "__main__":
     w_w = HAPropsSI("W", "T", T_w+273.15, "P", p, "R", 1.0)
     w_a = HAPropsSI("W", "T", T_a+273.15, "P", p, "R", RH)
     w_tilde = w_a - w_w
-    op = OpPoint(T_a=T_a, T_w=T_w, w_tilde=w_tilde, u_a=u_a)
+    op = OpPoint(T_a=T_a+273.15, T_w=T_w+273.15, w_tilde=w_tilde, u_a=u_a)
 
     # Hermes-Parameter (achte auf realistische Dichtekoeffizienten)
     a0   = 207.0
@@ -118,7 +117,7 @@ if __name__ == "__main__":
     k_f0 = 0.132     # W/mK
     i_sv = 2.83e6    # J/kg
     beta = 3e-4
-    hp = HermesParams(a0=a0, a1=a1, a2=-0.615*(T_w),
+    hp = HermesParams(a0=a0, a1=a1, a2=-0.615*(T_w+273.15),
                       k_f0=k_f0, i_sv=i_sv, beta=beta)
 
     # Geometrie & Luft
@@ -131,7 +130,7 @@ if __name__ == "__main__":
 
     # Dimensionslose Zeit definieren
     s0 = 1e-8
-    s_end = 1
+    s_end = 30
     N = 2000
     s_array = np.linspace(1e-9, s_end, N)
 
