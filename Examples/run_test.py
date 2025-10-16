@@ -15,7 +15,7 @@ cfg = CaseConfig(
 )
 
 geom = FlatPlate(
-    L = 0.1
+    L = 0.1             # m
 )
 
 sim = Simulator()
