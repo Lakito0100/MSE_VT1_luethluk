@@ -105,7 +105,7 @@ if __name__ == "__main__":
     T_w = -4.0      # °C Wandtemperatur
     RH  = 0.8       # Relative Luftfeuchtigkeit
     u_a = 1.0       # m/s
-    p = 100000      # Pa
+    p = 103500      # Pa
 
     # Feuchte-Luft
     w_w = HAPropsSI("W", "T", T_w+273.15, "P", p, "R", 1.0)
@@ -135,7 +135,7 @@ if __name__ == "__main__":
 
     # Dimensionslose Zeit definieren
     s0 = 1e-8
-    s_end = 5
+    s_end = 6
     N = 10000
     s_array = np.linspace(1e-9, s_end, N)
 
