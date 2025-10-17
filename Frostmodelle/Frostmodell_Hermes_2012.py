@@ -3,6 +3,7 @@ import math
 import numpy as np
 import matplotlib.pyplot as plt
 from CoolProp.HumidAirProp import HAPropsSI
+from CoolProp.CoolProp import PropsSI
 
 # ----------------- Basisdaten -----------------
 
@@ -14,9 +15,11 @@ class Flatplate:
 class AirProperty:
     k_a: float   # [W/mK]
     c_p: float   # [J/kgK]
-    Pr: float    # [-]
     rho: float   # [kg/m^3]
     mu: float    # [Pa*s]
+
+    def Pr(self):
+        return self.c_p * self.mu / self.k_a
 
 @dataclass(frozen=True)
 class OpPoint:
@@ -32,163 +35,168 @@ class HermesParams:
     a2: float
     k_f0: float
     i_sv: float
+    beta: float
 
-# -------------- Psychrometrie (für w̃) ---------------
+# -------------- Modellimplementation ---------------
 
-def w_from_T_RH(T_C: float, RH: float, p_atm: float = 101325.0) -> float:
-    """
-    Feuchteverhältnis x_a [kg/kg_trockene_Luft] aus (T, RH, p).
-    """
-    T_K = T_C + 273.15
-    RH = max(0.0, min(1.0, RH))
-    return float(HAPropsSI("W", "T", T_K, "P", p_atm, "R", RH))
+def T_tilde(op: OpPoint, hp: HermesParams) -> float:
+    return hp.a1 * (op.T_a - op.T_w)
 
-def w_sat_over_ice_at_T(Tw_C: float, p_atm: float = 101325.0) -> float:
-    """
-    Sättigungs-Feuchteverhältnis x_w über EIS bei Wandtemperatur Tw.
-    CoolProp: Frostpunkt-Eingang 'Tfp' erzwingt Sättigung über Eis.
-    """
-    Tw_K = Tw_C + 273.15
-    return float(HAPropsSI("W", "T", Tw_K, "P", p_atm, "R", 1.0))
+def Ja(air: AirProperty, op: OpPoint, hp: HermesParams) -> float:
+    return air.c_p * (op.T_a - op.T_w) / (hp.i_sv * op.w_tilde)
 
-def compute_w_tilde(Ta_C: float, Tw_C: float, RH: float, p_atm: float = 101325.0) -> float:
-    """
-    w̃ = x_a - x_w  (x_w: Sättigung über Eis bei Tw)
-    """
-    x_a = w_from_T_RH(Ta_C, RH, p_atm)
-    x_w = w_sat_over_ice_at_T(Tw_C, p_atm)
-    return max(0.0, x_a - x_w)
+def k_tilde(air: AirProperty, hp: HermesParams) -> float:
+    return hp.k_f0 / air.k_a
 
-# -------------- Strömungs-/Wärmeübergang ----------------
+def Re(geom: Flatplate, air: AirProperty, op: OpPoint) -> float:
+    return air.rho * op.u_a * geom.L / air.mu
 
-def Nu_Lienhard_turbulent_flat_plate(L: float, air: AirProperty, u: float) -> float:
-    Re = air.rho * u * L / air.mu
-    return 0.037 * (Re**0.8) * (air.Pr**0.43)
-
-# -------------- Hermes 2012: X(s) (Eq. 34/35) ----------
+def Nu(geom: Flatplate, air: AirProperty, op: OpPoint) -> float:
+    return 0.037 * Re(geom, air, op)**0.8 * air.Pr()**0.43
 
 def X_of_s(s: float, geom: Flatplate, air: AirProperty, op: OpPoint, hp: HermesParams) -> float:
-    # Tilde-Größen
-    T_tilde = hp.a1 * (op.T_a - op.T_w)
+
     w_tilde = op.w_tilde
-    if w_tilde <= 0.0:
-        return 0.0
 
-    Nu = Nu_Lienhard_turbulent_flat_plate(geom.L, air, op.u_a)
-    Ja = (air.c_p * (op.T_a - op.T_w)) / (hp.i_sv * w_tilde)
-    ktilde0 = hp.k_f0 / air.k_a
+    d0 = w_tilde * (2 + T_tilde(op, hp)) / ((1 + T_tilde(op, hp)) * (1 + 1/Ja(air, op, hp)))
+    d1 = (k_tilde(air, hp)/Nu(geom, air, op)) * (2 + T_tilde(op, hp)) / ((1 + T_tilde(op, hp)) * (1 + 1/Ja(air, op, hp)))
+    return 0.5 * (math.sqrt(d1**2 + 4.0*d0*s) - d1)
 
-    denom = (1.0 + T_tilde) * (1.0 + 1.0/Ja)
-    d0 = w_tilde * (2.0 + T_tilde) / denom
-    d1 = (ktilde0 / Nu) * (2.0 + T_tilde) / denom
+def frost_state_at_s(s: float, geom: Flatplate, air: AirProperty, op: OpPoint, hp: HermesParams,
+                     Ts0: float | None = None, tol: float = 1e-6, itmax: int = 1000):
 
-    return max(0.0, 0.5 * (math.sqrt(d1*d1 + 4.0*d0*s) - d1))
+    # initial guess: weighted between Ta and Tw
+    Ts = Ts0 if Ts0 is not None else (0.5*op.T_a + 0.5*op.T_w)
 
-# -------------- h(X), T_s, q_f  -------------------------
-# Eq. (18): h = Nu * (k/k_f0) * (1 + 1/Ja) * X    (k/k_f0 = 1/ktilde0)
-# Eq. (20): T_s = T_air - (T_air - T_wall)/(1 + h)
-# Eq. (13): q_f = a0 * exp(a1 * T_s + a2)
+    Nu_val = Nu(geom, air, op)
+    X = X_of_s(s, geom, air, op, hp)
+    Ja_val = Ja(air, op, hp)
 
-def surface_state_from_s(s, geom, air, op, hp, b=3.0e-4, tol=1e-8, itmax=30):
-    """
-    Returns: X, h, Ts, qf   (alle paper-konsistent)
-    - X(s): Eq. (34)/(35)
-    - h(X): Eq. (18) mit k/kf, NICHT k/kf0
-    - Ts:   Eq. (20)
-    - qf:   Eq. (13)
-    - kf:   Eq. (14) -> nur intern
-    """
-    # 1) X(s) aus der geschlossenen Lösung
-    X  = X_of_s(s, geom, air, op, hp)
-    if X <= 0.0:
-        Ts = min(op.T_wall, 0.0)
-        qf = hp.a0 * math.exp(hp.a1*Ts + hp.a2)
-        h  = 0.0
-        return X, h, Ts, qf
-
-    Nu = Nu_Lienhard_turbulent_flat_plate(geom.L, air, op.u_a)
-    Ja = (air.c_p * (op.T_air - op.T_wall)) / (hp.i_sv * op.w_tilde) if op.w_tilde > 0 else 1e12
-
-    # Fixpunkt für kf(Ts)
-    kf = hp.k_f0  # Start
     for _ in range(itmax):
-        # h mit aktuellem kf: Eq. (18)
-        h  = Nu * (air.k_a / max(kf, 1e-12)) * (1.0 + 1.0/Ja) * X
-        # Ts: Eq. (20)
-        Ts = op.T_air - (op.T_air - op.T_wall) / (1.0 + h)
-        Ts = min(Ts, 0.0)  # Eisoberfläche
-        # rho_f(Ts): Eq. (13)
-        rho_f = hp.a0 * math.exp(hp.a1 * Ts + hp.a2)
-        # neues kf: Eq. (14)
-        kf_new = hp.k_f0 + b * rho_f
-        if abs(kf_new - kf) <= tol * max(1.0, kf):
-            kf = kf_new
-            break
-        kf = kf_new
+        rho_f = hp.a0 * math.exp(hp.a1*(Ts) + hp.a2)
+        k_f  = hp.k_f0 + hp.beta * rho_f
+        Bi  = Nu_val * X * (air.k_a / k_f)
+        theta  = Bi * (1.0 + 1.0/Ja_val)
+        Ts_new = op.T_a - (op.T_a - op.T_w) / (1.0 + theta)
+        if abs(Ts_new - Ts) < tol:
+            return Ts_new, rho_f, k_f, Bi, theta
+        Ts = Ts_new
 
-    # qf am Ende (Eq. 13)
-    qf = hp.a0 * math.exp(hp.a1 * Ts + hp.a2)
-    return X, h, Ts, qf
+    raise SystemExit("Frostzustand nicht konvergiert!")
 
-# -------------- Zeitabbildung via Eq. (22) ---------------
+def s_of_t(t: float, geom: Flatplate, air: AirProperty, op: OpPoint, hp: HermesParams, s_old: float) -> float:
+    Ts, rho_f, k_f, _, _ = frost_state_at_s(s_old, geom, air, op, hp)
+    return k_f * t / (rho_f * air.c_p * geom.L**2)
 
-def t_of_s(s_grid, geom, air, op, hp):
-    q = np.array([surface_state_from_s(s, geom, air, op, hp)[3] for s in s_grid])
-    coeff = air.c_p*(geom.L**2)/hp.k_f0
-    return coeff * s_grid * q
+def t_of_s(s: float, geom: Flatplate, air: AirProperty, op: OpPoint, hp: HermesParams) -> float:
+    Ts, rho_f, k_f, _, _ = frost_state_at_s(s, geom, air, op, hp)
+    return (s * rho_f * air.c_p * geom.L**2) / k_f
+
+def Ts_of_s(s: float, geom: Flatplate, air: AirProperty, op: OpPoint, hp: HermesParams) -> float:
+    Ts, *_ = frost_state_at_s(s, geom, air, op, hp)
+    return Ts
 
 # -------------- Kurven berechnen & plotten ---------------
 
 if __name__ == "__main__":
-    # Geometrie & Luft
-    geom = Flatplate(L=0.10)  # 10 cm
-    air  = AirProperty(k_a=0.026, c_p=1005.0, Pr=0.71, rho=1.2, mu=1.8e-5)
 
     # Randbedingungen
-    T_a = 16.0
-    RH  = 0.80
-    u_a = 1.0
+    T_a = 16.0      # °C Lufttemperatur
+    T_w = -4.0      # °C Wandtemperatur
+    RH  = 0.8       # Relative Luftfeuchtigkeit
+    u_a = 1.0       # m/s
+    p = 100000      # Pa
 
-    Nu = Nu_Lienhard_turbulent_flat_plate(geom.L, air, u_a)
-    print(Nu)
+    # Feuchte-Luft
+    w_w = HAPropsSI("W", "T", T_w+273.15, "P", p, "R", 1.0)
+    w_a = HAPropsSI("W", "T", T_a+273.15, "P", p, "R", RH)
+    w_tilde = w_a - w_w
+    op = OpPoint(T_a=T_a, T_w=T_w, w_tilde=w_tilde, u_a=u_a)
 
-    # Hermes-Parameter (Paper)
-    a0   = 207.0
+    # Hermes-Parameter
+    a0   = 207.3
     a1   = 0.266
     k_f0 = 0.132     # W/mK
-    i_sv = 2.83e6    # J/kg
+    i_sv = 2830000    # J/kg
+    beta = 0.000313
+    hp = HermesParams(a0=a0, a1=a1, a2=(-0.0615)*(T_w),
+                      k_f0=k_f0, i_sv=i_sv, beta=beta)
 
-    # Zielzeit
-    t_target = 120.0 * 60.0  # 120 min in s
+    # Geometrie & Luft
+    geom = Flatplate(L=0.1)
+    k_feucht = HAPropsSI('K', 'T', T_a+273.15, 'P', p, 'R', RH)
+    c_p_feucht = HAPropsSI('cp', 'T', T_a+273.15, 'P', p, 'R', RH)
+    rho = PropsSI('D', 'T', T_a+273.15, 'P', p,'Air')
+    mu = HAPropsSI('M', 'T', T_a+273.15, 'P', p, 'R', RH)
+    air  = AirProperty(k_a=k_feucht, c_p=c_p_feucht, rho=rho, mu=mu)
 
-    Tw_list = [-4.0, -8.0, -12.0, -16.0]
-    plt.figure(figsize=(7.2, 4.6))
+    # Zielzeit (real)
+    t_end = 120.0  # min
 
-    for Tw in Tw_list:
-        w_tilde = compute_w_tilde(T_a, Tw, RH)
-        hp = HermesParams(a0=a0, a1=a1, a2=-0.615*Tw, k_f0=k_f0, i_sv=i_sv)
-        op = OpPoint(T_a=T_a, T_w=Tw, w_tilde=w_tilde, u_a=u_a)
+    # Dimensionslose Zeit definieren
+    s0 = 1e-8
+    s_end = 5
+    N = 10000
+    s_array = np.linspace(1e-9, s_end, N)
 
-        # s-Grid so wählen, dass t(s_max) ~ t_target (2–3 einfache Iterationen)
-        s_max = 1.0
-        for _ in range(3):
-            s_grid = np.linspace(0.0, s_max, 300)
-            t_grid = t_of_s(s_grid, geom, air, op, hp)
-            if t_grid[-1] > 1e-9:
-                s_max *= (t_target / t_grid[-1])
+    # Zustände entlang s
+    results = [frost_state_at_s(s, geom, air, op, hp) for s in s_array]
+    Ts, rho_f, k_f, Bi, theta = map(np.asarray, zip(*results))
+    X = np.array([X_of_s(s, geom, air, op, hp) for s in s_array])
+    x_s = X * geom.L * 1e3  # mm
 
-        # Finales Grid + Größen
-        s = np.linspace(0.0, s_max, 600)
-        t = t_of_s(s, geom, air, op, hp)
-        Xs = np.array([X_of_s(si, geom, air, op, hp) for si in s])
-        x_mm = 1e3 * Xs * geom.L
+    t_array = []
+    for s in s_array:
+        t_array.append(t_of_s(s, geom, air, op, hp))
 
-        plt.plot(t/60.0, x_mm, label=f"Tw = {Tw:.0f}°C")
+    t_array = np.array(t_array)
 
-    plt.xlabel("Zeit [min]")
-    plt.ylabel("Frostdicke $x_s$ [mm]")
+    # ---- Plots (wie gehabt) ----
+
+    rech = (theta/(1 + theta)) * (s_array / X)
+    plt.plot(X, rech, label=f"Tw = {T_w:.0f}°C")
+    plt.xlabel("X [-]")
+    plt.ylabel(r"$\frac{\theta}{1+\theta}\,\frac{s}{X}$ [-]")
     plt.title("Hermes (2012)")
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
+    plt.xlim([0, 0.12])
+    plt.ylim([0, 30])
+    plt.grid(True); plt.legend(); plt.tight_layout(); plt.show()
+
+    plt.plot(t_array/60, x_s, label=f"Tw = {T_w:.0f}°C")
+    plt.text(0.05, 0.95,
+             fr"$\tilde{{\omega}}={w_tilde:.4f},\;\tilde{{T}}={T_tilde(op,hp):.1f},\;Nu={Nu(geom,air,op):.0f}$",
+             fontsize=12, ha='left', va='top', transform=plt.gca().transAxes)
+    plt.xlabel("Zeit [min]"); plt.ylabel("Frostdicke $x_s$ [mm]")
+    plt.title("Hermes (2012)")
+    plt.xlim([0, 120])
+    plt.ylim([0, 5])
+    plt.grid(True); plt.legend(); plt.tight_layout(); plt.show()
+
+
+    plt.plot(t_array/60, Ts, label=f"Tw = {T_w:.0f}°C")
+    plt.xlabel("Zeit [min]"); plt.ylabel("Frost-Oberflächentemperatur [°C]")
+    plt.title("Hermes (2012)")
+    plt.xlim([0, t_end])
+    plt.ylim([T_w, T_a])
+    plt.grid(True); plt.legend(); plt.tight_layout(); plt.show()
+
+    plt.plot(t_array/60, rho_f, label=f"Tw = {T_w:.0f}°C")
+    plt.xlabel("Zeit [min]"); plt.ylabel("mittlere Frostdichte [kg/m³]")
+    plt.title("Hermes (2012)")
+    plt.xlim([0, t_end])
+    plt.ylim([0, 318])
+    plt.grid(True); plt.legend(); plt.tight_layout(); plt.show()
+
+    plt.plot(t_array/60, k_f, label=f"Tw = {T_w:.0f}°C")
+    plt.xlabel("Zeit [min]"); plt.ylabel("Frost Wärmeleitfähigkeit [W/mK]")
+    plt.title("Hermes (2012)")
+    plt.xlim([0, t_end])
+    #plt.ylim([0, 5])
+    plt.grid(True); plt.legend(); plt.tight_layout(); plt.show()
+
+    plt.plot(t_array/60, Bi, label=f"Tw = {T_w:.0f}°C")
+    plt.xlabel("Zeit [min]"); plt.ylabel("Biotzahl [-]")
+    plt.title("Hermes (2012)")
+    plt.xlim([0, t_end])
+    #plt.ylim([0, 5])
+    plt.grid(True); plt.legend(); plt.tight_layout(); plt.show()
