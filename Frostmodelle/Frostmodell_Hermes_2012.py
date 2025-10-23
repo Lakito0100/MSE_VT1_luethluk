@@ -151,7 +151,7 @@ if __name__ == "__main__":
 
     t_array = np.array(t_array)
 
-    # ---- Plots (wie gehabt) ----
+    # Plots
 
     rech = (theta/(1 + theta)) * (s_array / X)
     plt.plot(X, rech, label=f"Tw = {T_w:.0f}°C")

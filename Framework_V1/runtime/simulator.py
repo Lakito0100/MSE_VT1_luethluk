@@ -1,23 +1,20 @@
 from .state import SimState
-
-
-class ResultRecorder:
-    def __init__(self): self.data = {k: [] for k in ['t', 'x_frost']}
-    def push(self, t, fx):
-        self.data['t'].append(t)
-        self.data['x_frost'].append(fx)
+from .recorder import ResultRecorder
 
 class Simulator:
-    #def __init__(self):
+    def __init__(self, fields=("t","x_frost")):
+        self.rec = ResultRecorder(fields=fields)
 
     def run(self, cfg, model):
         st = SimState()
-        rec = ResultRecorder()
         t = 0.001
 
         while t <= cfg.t_end:
+            st.t = t
             fx = model.testmodell_fx_at_t(con=cfg, t=t)
-            rec.push(t, fx)
+            st.x_frost = fx
+
+            self.rec.push_from_state(st)
             t += cfg.dt
 
-        return rec
+        return self.rec
