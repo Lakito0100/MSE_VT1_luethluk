@@ -11,7 +11,7 @@ cfg = CaseConfig(
     RH = 0.8,           # -
     p_atm = 100000,     # Pa
     t_end = 10*60,      # s
-    dt = 0.1,           # s
+    dt = 5,           # s
     test_ceof = 3e-5    # m/(s*K)
 )
 
