@@ -4,7 +4,7 @@ def init_fields(self, cfg, st):
     st.s_e = 0
     st.s_ft = 0
 
-    # Initializing edge domain [r, phi]
+    # Initializing edge domain [r, theta]
     st.T_e[:, :] = cfg.T_w # Add calculation for finn edge temperature
     st.rho_e[:, :] = 1  # Define initial density
     st.rho_amb[:, :] = cfg.rho_amb
