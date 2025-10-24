@@ -7,7 +7,7 @@ class Simulator:
 
     def run(self, cfg, model):
         st = SimState()
-        t = 0.001
+        t = 0
 
         while t <= cfg.t_end:
             st.t = t

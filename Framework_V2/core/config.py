@@ -14,6 +14,7 @@ class CaseConfig:
     c_p_a: float
     D_std:  float
     C: float
+    isv: float
 
     # refrigerant data
     T_w: float

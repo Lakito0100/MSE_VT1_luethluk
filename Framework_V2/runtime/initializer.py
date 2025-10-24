@@ -1,4 +1,5 @@
-def init_fields(self, cfg, st):
+@staticmethod
+def init_fields(cfg, st):
 
     # Initializing frost thickness
     st.s_e = 0

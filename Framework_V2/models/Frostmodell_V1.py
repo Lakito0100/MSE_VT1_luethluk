@@ -1,4 +1,7 @@
 import numpy as np
+from scipy.sparse import lil_matrix, csr_matrix
+from scipy.sparse.linalg import spsolve
+from dataclasses import field
 from Framework_V2.core.corrolations import DK
 
 class Frostmodell_Edge:
@@ -57,23 +60,53 @@ class Frostmodell_Edge:
         res_T = res_w = np.inf
         T_f_old = np.asarray(st.T_e, dtype=float).copy()
         w_f_old = np.asarray(st.w_e, dtype=float).copy()
+        T_f_new = field(default_factory=lambda: np.zeros((0, 0), dtype=float))
+        w_f_new = field(default_factory=lambda: np.zeros((0, 0), dtype=float))
 
         while tol < res_T and tol < res_w and niter > it:
 
             for theta in range(gs.ntheta+1):
-                r = np.linspace(geom.fin_pitch*0.5, st.s_e[:,theta], gs.nr)
+                r_end = float(st.s_e[-1, theta])
+                r = np.linspace(geom.fin_pitch*0.5, r_end, gs.nr)
+                N = len(r)
                 dr = r[1] - r[0]
+
+                A_w = lil_matrix((N, N), dtype=float)
+                b_w = np.zeros(N)
+                A_T = lil_matrix((N, N), dtype=float)
+                b_T = np.zeros(N)
+
                 for i in range(len(r)):
                     if i == 0:
+                        A_w[i,i] = -1
+                        A_w[i,i+1] = 1
+                        b_w[i] = 0
 
+                        A_T[i,i] = 1
+                        b_T[i] = cfg.T_w # Define T_edge ---------------------------------
                     elif i == len(r):
+                        A_w[i,i] = 1
+                        b_w[i] = cfg.w_amb
 
+                        A_T[i,i] = -1
+                        A_T[i,i-1] = 1
                     else:
                         alpha = (r[i]/r[i+1] - r[i]/r[i-1]) * self.D_eff(cfg, st, r[i], theta) * st.rho_a[r[i], theta]
                         beta = -4 * (dr**2) * cfg.C * st.rho_a[r[i], theta]
                         gamma = (r[i]/r[i+1] - r[i]/r[i-1]) * self.k_eff(st, r[i], theta)
 
-            # Calculation for T_f_new and w_f_new
+                        A_w[i,i-1] = -alpha
+                        A_w[i,i] = beta
+                        A_w[i,i+1] = alpha
+                        b_w[i] = beta * cfg.w_amb # Define calculation for w_sat ----------------------
+
+                        A_T[i,i-1] = -gamma
+                        A_T[i,i] = 0
+                        A_T[i,i+1] = gamma
+                        b_T[i] = beta * cfg.isv * (w_f_old[i] - cfg.w_amb) # Define calculation for w_sat ----------------------
+
+                w_f_new[:,theta] = spsolve(csr_matrix(A_w), b_w)
+                T_f_new[:,theta] = spsolve(csr_matrix(A_T), b_T)
 
             res_T = np.max(np.abs(T_f_new -T_f_old))
             res_w = np.max(np.abs(w_f_new - w_f_old))
