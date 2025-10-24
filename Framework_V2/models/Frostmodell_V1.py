@@ -26,20 +26,20 @@ class Frostmodell_Edge:
         w_fs = st.w_e[-1, theta]
         return hm * cfg.rho_amb * (cfg.w_a - w_fs)
 
-    def m_dot_rho_f(self, cfg, geom, st, gs, theta):
+    def m_dot_rho_f(self, cfg, st, gs, theta):
         Deff = self.D_eff(cfg, st, -1, theta)
         dr = st.s_e[theta] / gs.nr
         dwf_dr = (cfg.w_a - st.w_e[-1, theta]) / dr
         return Deff * cfg.rho_amb * dwf_dr
 
-    def m_dot_s_f(self, cfg, geom, st, theta):
-        return self.m_dot_f(cfg, geom, st, theta) - self.m_dot_rho_f(cfg, st, theta)
+    def m_dot_s_f(self, cfg, geom, st, gs, theta):
+        return self.m_dot_f(cfg, geom, st, theta) - self.m_dot_rho_f(cfg, st, gs, theta)
 
-    def q_dot_lat_fs(self, cfg, geom, st, theta):
-        return cfg.h_sub * self.m_dot_s_f(cfg, geom, st, theta)
+    def q_dot_lat_fs(self, cfg, geom, st, gs, theta):
+        return cfg.h_sub * self.m_dot_s_f(cfg, geom, st, gs, theta)
 
-    def q_dot_tot_fs(self, cfg, geom, st, theta):
-        return self.q_dot_sens_fs(cfg, geom, st, theta) + self.q_dot_lat_fs(cfg, geom, st, theta)
+    def q_dot_tot_fs(self, cfg, geom, st, gs, theta):
+        return self.q_dot_sens_fs(cfg, geom, st, theta) + self.q_dot_lat_fs(cfg, geom, st, gs, theta)
 
 
     @staticmethod
@@ -52,16 +52,28 @@ class Frostmodell_Edge:
     def k_eff(st, r, theta):
         return 0.132 + 3.13e-4 * st.rho_e[r,theta] + 1.6e-7 * (st.rho_e[r,theta])**2
 
-    @staticmethod
-    def New_edge_state_seg(st, tol = 1e-6, niter = 1000):
+    def New_edge_state_seg(self, cfg, geom, st, gs, tol = 1e-6, niter = 1000):
         it = 0
         res_T = res_w = np.inf
         T_f_old = np.asarray(st.T_e, dtype=float).copy()
         w_f_old = np.asarray(st.w_e, dtype=float).copy()
+
         while tol < res_T and tol < res_w and niter > it:
 
-            # Calculation for T_f_new and w_f_new
+            for theta in range(gs.ntheta+1):
+                r = np.linspace(geom.fin_pitch, st.s_e[:,theta], gs.nr)
+                dr = r[1] - r[0]
+                for i in range(len(r)):
+                    if i == 0:
+                        A = # Define BC A, B and C
+                    elif i == len(r):
+                        A = # Define BC A, B and C
+                    else:
+                        A = (r[i]/r[i+1] - r[i]/r[i-1]) * self.D_eff(cfg, st, r[i], theta) * st.rho_a[r[i], theta]
+                        B = -4 * (dr**2) * cfg.C * st.rho_a[r[i], theta]
+                        C = (r[i]/r[i+1] - r[i]/r[i-1]) * self.k_eff(st, r[i], theta)
 
+            # Calculation for T_f_new and w_f_new
 
             res_T = np.max(np.abs(T_f_new -T_f_old))
             res_w = np.max(np.abs(w_f_new - w_f_old))

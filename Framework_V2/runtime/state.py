@@ -5,7 +5,7 @@ import numpy as np
 class GridShape:
     nx: int = 100
     nr: int = 100
-    nphi: int = 90
+    ntheta: int = 90
 
 @dataclass
 class SimState:
