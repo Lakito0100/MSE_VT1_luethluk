@@ -61,17 +61,17 @@ class Frostmodell_Edge:
         while tol < res_T and tol < res_w and niter > it:
 
             for theta in range(gs.ntheta+1):
-                r = np.linspace(geom.fin_pitch, st.s_e[:,theta], gs.nr)
+                r = np.linspace(geom.fin_pitch*0.5, st.s_e[:,theta], gs.nr)
                 dr = r[1] - r[0]
                 for i in range(len(r)):
                     if i == 0:
-                        A = # Define BC A, B and C
+
                     elif i == len(r):
-                        A = # Define BC A, B and C
+
                     else:
-                        A = (r[i]/r[i+1] - r[i]/r[i-1]) * self.D_eff(cfg, st, r[i], theta) * st.rho_a[r[i], theta]
-                        B = -4 * (dr**2) * cfg.C * st.rho_a[r[i], theta]
-                        C = (r[i]/r[i+1] - r[i]/r[i-1]) * self.k_eff(st, r[i], theta)
+                        alpha = (r[i]/r[i+1] - r[i]/r[i-1]) * self.D_eff(cfg, st, r[i], theta) * st.rho_a[r[i], theta]
+                        beta = -4 * (dr**2) * cfg.C * st.rho_a[r[i], theta]
+                        gamma = (r[i]/r[i+1] - r[i]/r[i-1]) * self.k_eff(st, r[i], theta)
 
             # Calculation for T_f_new and w_f_new
 

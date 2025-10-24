@@ -7,6 +7,7 @@ class CaseConfig:
     v_a: float
     p_a: float
     RH: float
+    w_amb: float
     rho_amb: float
     v_kin: float
     lam: float
