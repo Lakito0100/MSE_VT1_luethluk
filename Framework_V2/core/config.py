@@ -3,10 +3,10 @@ from dataclasses import dataclass
 @dataclass(frozen=True)
 class CaseConfig:
     # air data
-    T_a: float
-    v_a: float
-    p_a: float
-    RH: float
+    T_a: float          # °C temperature air
+    v_a: float          # m/s velocity air
+    p_a: float          # Pa pressure air
+    RH: float           # relative humidity air
     w_amb: float
     rho_amb: float
     v_kin: float

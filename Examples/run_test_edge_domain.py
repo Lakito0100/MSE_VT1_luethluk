@@ -6,10 +6,10 @@ from Framework_V2.visualisation import plot
 
 cfg = CaseConfig(
     # air data
-    T_a = 10,
-    v_a = 1,
-    p_a = 103500,
-    RH = 0.8,
+    T_a = 10,           # °C temperature air
+    v_a = 1,            # m/s velocity air
+    p_a = 103500,       # Pa pressure air
+    RH = 0.8,           # relative humidity air
     w_amb = 1,
     rho_amb = 1.2,
     v_kin = 1.5e-5,
