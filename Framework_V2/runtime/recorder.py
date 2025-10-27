@@ -4,7 +4,7 @@ from typing import Iterable, Mapping, Any
 
 class ResultRecorder:
 
-    def __init__(self, fields: Iterable[str] = ("t", "x_frost")):
+    def __init__(self, fields: Iterable[str] = ("t", "s_e")):
         self.data: dict[str, list[Any]] = {k: [] for k in fields}
         self._n = 0  # Anzahl Zeilen (Timesteps)
 

@@ -26,7 +26,7 @@ def plot_frostdicke(results, time_unit="s", show=True, savepath=None):
 def plot_finned_tube_side(he):
     L   = he.l_rohr()
     D   = he.d_tube_a
-    N   = int(he.n_rippen)
+    N   = int(he.n_fin)
     Lf  = he.l_fin
     tf  = he.fin_pitch
 

@@ -1,12 +1,6 @@
 from dataclasses import dataclass, field
 import numpy as np
 
-@dataclass(frozen=True)
-class GridShape:
-    nx: int = 100
-    nr: int = 100
-    ntheta: int = 90
-
 @dataclass
 class SimState:
     t: float = 0.0
