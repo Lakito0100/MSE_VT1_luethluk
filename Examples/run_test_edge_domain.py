@@ -62,4 +62,4 @@ sim = Simulator(fields=("t","s_e"))
 
 results = sim.run(cfg, geom, gs, Frostmodell_V1)
 results.to_csv("results_test_edge.csv")
-plot.plot_frostdicke_at_theta(results, 'w_e', 0)
+#plot.plot_frostdicke_at_theta(results, 'w_e', 0)

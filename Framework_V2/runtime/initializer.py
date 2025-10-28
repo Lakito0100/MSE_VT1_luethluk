@@ -16,7 +16,7 @@ def init_fields(cfg, st, gs):
     st.rho_a = np.zeros((gs.nr+1, gs.ntheta+1), dtype=float)
     st.rho_a[:, :] = cfg.rho_amb
     st.w_e = np.zeros((gs.nr+1, gs.ntheta+1), dtype=float)
-    st.w_e[:, :] = 1 # water vapor moisture content
+    st.w_e[:, :] = 0.01 # water vapor moisture content
 
     # Initializing finn and tube domain
     st.T_ft = np.zeros(gs.nx+1, dtype=float)
