@@ -1,12 +1,11 @@
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 
-def plot_frostdicke(results, time_unit="s", show=True, savepath=None):
+def plot_frostdicke_at_theta(results, variabel_x, theta ,time_unit="s", show=True, savepath=None):
     # results kann entweder ein ResultRecorder (mit .data) oder ein dict sein
     data = results.data
     t = data["t"]
-    fx = data["x_frost"]             # Frostdicke in m
-    fx_mm = [x*60 for x in fx]  # Frostdicke in mm
+    fx = data[variabel_x]             # Frostdicke in m
 
     if time_unit == "min":
         t = [ti / 60.0 for ti in t]
@@ -14,10 +13,10 @@ def plot_frostdicke(results, time_unit="s", show=True, savepath=None):
     else:
         xlabel = "Zeit [s]"
 
-    plt.plot(t, fx_mm, linewidth=2)
+    plt.plot(t, fx[:, theta], linewidth=2)
     plt.xlabel(xlabel)
-    plt.ylabel("Frostdicke s [mm]")
-    plt.title("Frostdicke über der Zeit")
+    plt.ylabel(variabel_x)
+    plt.title("Param über der Zeit")
     plt.grid(True, alpha=0.3)
 
     plt.show()

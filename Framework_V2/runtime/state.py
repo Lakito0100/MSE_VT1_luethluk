@@ -16,4 +16,4 @@ class SimState:
     s_ft: float = 0.0
     T_ft: np.ndarray = field(default_factory=lambda: np.zeros((0,), dtype=float))
     rho_ft: np.ndarray = field(default_factory=lambda: np.zeros((0,), dtype=float))
-    w_ft: float = field(default_factory=lambda: np.zeros((0,), dtype=float))
+    w_ft: np.ndarray = field(default_factory=lambda: np.zeros((0,), dtype=float))

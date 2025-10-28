@@ -60,15 +60,15 @@ class Frostmodell_Edge:
         res_T = res_w = np.inf
         T_f_old = np.asarray(st.T_e, dtype=float).copy()
         w_f_old = np.asarray(st.w_e, dtype=float).copy()
-        T_f_new = field(default_factory=lambda: np.zeros((0, 0), dtype=float))
-        w_f_new = field(default_factory=lambda: np.zeros((0, 0), dtype=float))
+        T_f_new = np.empty_like(T_f_old)
+        w_f_new = np.empty_like(w_f_old)
 
         while tol < res_T and tol < res_w and niter > it:
 
-            for theta in range(gs.ntheta+1):
-                r_end = float(st.s_e[-1, theta])
+            for theta in range(gs.ntheta):
+                r_end = float(st.s_e[theta])
                 r = np.linspace(geom.fin_pitch*0.5, r_end, gs.nr)
-                N = len(r)
+                N = len(r)+1
                 dr = r[1] - r[0]
 
                 A_w = lil_matrix((N, N), dtype=float)
@@ -84,16 +84,16 @@ class Frostmodell_Edge:
 
                         A_T[i,i] = 1
                         b_T[i] = cfg.T_w # Define T_edge ---------------------------------
-                    elif i == len(r):
+                    elif i == len(r)-1:
                         A_w[i,i] = 1
                         b_w[i] = cfg.w_amb
 
                         A_T[i,i] = -1
                         A_T[i,i-1] = 1
                     else:
-                        alpha = (r[i]/r[i+1] - r[i]/r[i-1]) * self.D_eff(cfg, st, r[i], theta) * st.rho_a[r[i], theta]
-                        beta = -4 * (dr**2) * cfg.C * st.rho_a[r[i], theta]
-                        gamma = (r[i]/r[i+1] - r[i]/r[i-1]) * self.k_eff(st, r[i], theta)
+                        alpha = (r[i]/r[i+1] - r[i]/r[i-1]) * self.D_eff(cfg, st, i, theta) * st.rho_a[i, theta]
+                        beta = -4 * (dr**2) * cfg.C * st.rho_a[i, theta]
+                        gamma = (r[i]/r[i+1] - r[i]/r[i-1]) * self.k_eff(st, i, theta)
 
                         A_w[i,i-1] = -alpha
                         A_w[i,i] = beta
@@ -103,7 +103,7 @@ class Frostmodell_Edge:
                         A_T[i,i-1] = -gamma
                         A_T[i,i] = 0
                         A_T[i,i+1] = gamma
-                        b_T[i] = beta * cfg.isv * (w_f_old[i] - cfg.w_amb) # Define calculation for w_sat ----------------------
+                        b_T[i] = beta * cfg.isv * (w_f_old[i,theta] - cfg.w_amb) # Define calculation for w_sat ----------------------
 
                 w_f_new[:,theta] = spsolve(csr_matrix(A_w), b_w)
                 T_f_new[:,theta] = spsolve(csr_matrix(A_T), b_T)
@@ -116,6 +116,9 @@ class Frostmodell_Edge:
 
         st.T_e = T_f_new
         st.w_e = w_f_new
+
+        # calculate s_e and ???
+
         return it, res_T, res_w
 
 
