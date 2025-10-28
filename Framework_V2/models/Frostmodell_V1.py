@@ -117,7 +117,7 @@ class Frostmodell_Edge:
         st.T_e = T_f_new
         st.w_e = w_f_new
 
-        # calculate s_e and ???
+        # calculate s_e and rho_f ----------------------------------------------
 
         return it, res_T, res_w
 
