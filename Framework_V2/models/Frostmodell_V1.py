@@ -66,7 +66,7 @@ class Frostmodell_Edge:
         while tol < res_T and tol < res_w and niter > it:
 
             for theta in range(gs.ntheta):
-                r_end = float(st.s_e[theta])
+                r_end = float(st.s_e[theta]) + geom.fin_pitch*0.5
                 r = np.linspace(geom.fin_pitch*0.5, r_end, gs.nr)
                 N = len(r)+1
                 dr = r[1] - r[0]
@@ -108,7 +108,7 @@ class Frostmodell_Edge:
                 w_f_new[:,theta] = spsolve(csr_matrix(A_w), b_w)
                 T_f_new[:,theta] = spsolve(csr_matrix(A_T), b_T)
 
-            res_T = np.max(np.abs(T_f_new -T_f_old))
+            res_T = np.max(np.abs(T_f_new - T_f_old))
             res_w = np.max(np.abs(w_f_new - w_f_old))
             T_f_old = T_f_new
             w_f_old = w_f_new

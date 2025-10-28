@@ -37,8 +37,8 @@ cfg = CaseConfig(
     h_sub= 334,         # kJ/kg latent heat of ablimation for water vapor
 
     # numerics
-    t_end = 60*10,      # s endtime
-    dt = 5              # s time step
+    t_end = 10,      # s endtime
+    dt = 1              # s time step
 )
 
 geom = FinnTubedHX(
