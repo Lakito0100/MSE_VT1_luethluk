@@ -9,7 +9,7 @@ class Frostmodell_Edge:
     @staticmethod
     def Nu_edge(cfg, geom, theta):
         Re_d = DK.Re(cfg.v_a, geom.fin_pitch, cfg.v_kin)
-        Pr = DK.Pr(cfg.v_kin, cfg.lam, cfg.c_p_a, cfg.rho)
+        Pr = DK.Pr(cfg.v_kin, cfg.lam, cfg.c_p_a, cfg.rho_amb)
         return 0.23 * (Re_d**0.466) * (Pr**(1/3)) * (0.7 + 1.06e-4 * (theta - 90)**2)
 
     def h_conv(self, cfg, geom, theta):
@@ -27,12 +27,12 @@ class Frostmodell_Edge:
     def m_dot_f(self, cfg, geom, st, theta):
         hm = self.h_mass(cfg, geom, theta)
         w_fs = st.w_e[-1, theta]
-        return hm * cfg.rho_amb * (cfg.w_a - w_fs)
+        return hm * cfg.rho_amb * (cfg.w_amb - w_fs)
 
     def m_dot_rho_f(self, cfg, st, gs, theta):
         Deff = self.D_eff(cfg, st, -1, theta)
         dr = st.s_e[theta] / gs.nr
-        dwf_dr = (cfg.w_a - st.w_e[-1, theta]) / dr
+        dwf_dr = (cfg.w_amb - st.w_e[-1, theta]) / dr
         return Deff * cfg.rho_amb * dwf_dr
 
     def m_dot_s_f(self, cfg, geom, st, gs, theta):
@@ -90,6 +90,7 @@ class Frostmodell_Edge:
 
                         A_T[i,i] = -1
                         A_T[i,i-1] = 1
+                        b_T[i] = self.q_dot_lat_fs(cfg, geom, st, gs, theta) * dr / self.k_eff(st, i, theta)
                     else:
                         alpha = (r[i]/r[i+1] - r[i]/r[i-1]) * self.D_eff(cfg, st, i, theta) * st.rho_a[i, theta]
                         beta = -4 * (dr**2) * cfg.C * st.rho_a[i, theta]
@@ -105,6 +106,11 @@ class Frostmodell_Edge:
                         A_T[i,i+1] = gamma
                         b_T[i] = beta * cfg.isv * (w_f_old[i,theta] - cfg.w_amb) # Define calculation for w_sat ----------------------
 
+                print(A_w)
+                print(b_w)
+                print(A_T)
+                print(b_T)
+
                 w_f_new[:,theta] = spsolve(csr_matrix(A_w), b_w)
                 T_f_new[:,theta] = spsolve(csr_matrix(A_T), b_T)
 
@@ -118,6 +124,11 @@ class Frostmodell_Edge:
         st.w_e = w_f_new
 
         # calculate s_e and rho_f ----------------------------------------------
+
+        for theta in range(gs.ntheta):
+            s_f_old = st.s_e[theta]
+            s_f_new = s_f_old + self.m_dot_s_f(cfg, geom, st, gs, theta) / st.rho_e[-1,theta]
+            st.s_e[theta] = s_f_new
 
         return it, res_T, res_w
 

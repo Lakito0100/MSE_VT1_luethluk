@@ -37,7 +37,7 @@ cfg = CaseConfig(
     h_sub= 334,         # kJ/kg latent heat of ablimation for water vapor
 
     # numerics
-    t_end = 10,      # s endtime
+    t_end = 1,      # s endtime
     dt = 1              # s time step
 )
 
@@ -52,8 +52,8 @@ geom = FinnTubedHX(
 
 gs = GridShape(
     nx = 100,
-    nr = 100,
-    ntheta = 90
+    nr = 4,#100,
+    ntheta = 1#90
 )
 
 sim = Simulator(fields=("t","s_e"))
