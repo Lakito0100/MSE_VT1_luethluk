@@ -36,8 +36,8 @@ cfg = CaseConfig(
     h_sub= 334,         # kJ/kg latent heat of ablimation for water vapor
 
     # numerics
-    t_end = 60,      # s endtime
-    dt = 1              # s time step
+    t_end = 150,      # s endtime
+    dt = 5              # s time step
 )
 
 geom = FinnTubedHX(
@@ -61,4 +61,16 @@ result_file = "results_test_edge.csv"
 
 results = sim.run(cfg, geom, gs, Frostmodell_V1)
 results.to_csv(result_file)
-plot.plot_results(result_file, "t", "s_e", "Plot der Resultate", False, 400, True)
+
+plot_r = 50
+plot_theta = 0
+plot_time = 5
+
+plot.plot_vs_time("results_test_edge.csv", var="s_e", theta_idx=plot_theta, save=False)
+plot.plot_vs_time("results_test_edge.csv", var="T_e", r_idx=plot_r, theta_idx=plot_theta, save=False)
+plot.plot_vs_time("results_test_edge.csv", var="rho_e", r_idx=plot_r, theta_idx=plot_theta, save=False)
+plot.plot_vs_time("results_test_edge.csv", var="w_e", r_idx=plot_r, theta_idx=plot_theta, save=False)
+
+plot.plot_vs_r("results_test_edge.csv", var="T_e", row=plot_time, theta_idx=plot_theta, save=False)
+plot.plot_vs_r("results_test_edge.csv", var="rho_e", row=plot_time, theta_idx=plot_theta, save=False)
+plot.plot_vs_r("results_test_edge.csv", var="w_e", row=plot_time, theta_idx=plot_theta, save=False)

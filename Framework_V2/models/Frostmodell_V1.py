@@ -116,16 +116,11 @@ class Frostmodell_Edge:
                         A_T[i,i+1] = gamma
                         b_T[i] = beta * cfg.isv * (st.w_e[i,theta] - w_sat_i)
 
-                #print("A_w: ", A_w)
-                #print("b_w: ", b_w)
-                #print("A_T: ", A_T)
-                #print("b_T: ", b_T)
-
                 T_f_new[:, theta] = spsolve(csr_matrix(A_T), b_T)
                 w_f_new[:,theta] = spsolve(csr_matrix(A_w), b_w)
 
-            res_T = np.max(np.abs((T_f_new - T_f_old)/T_f_old))
-            res_w = np.max(np.abs((w_f_new - w_f_old)/w_f_old))
+            res_T = np.max(np.abs(T_f_new - T_f_old))
+            res_w = np.max(np.abs(w_f_new - w_f_old))
             T_f_old = T_f_new.copy()
             w_f_old = w_f_new.copy()
             it += 1
