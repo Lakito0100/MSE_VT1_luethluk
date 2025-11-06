@@ -17,7 +17,10 @@ class Simulator:
         while t <= cfg.t_end:
             st.t = t
             iter, res_T, res_w = model.New_edge_state_seg(cfg, geom, st, gs)
-            print("Time Step: " + str(t) + " s \t Inner Iterations: " + str(iter) + " \t w: " + str(res_w) + " \t T: " + str(res_T))
+            print("Time Step: " + str(t) +
+                  " s \t Inner Iterations: " + str(iter) +
+                  " \t w: " + f'{res_w:.3e}' +
+                  " \t T: " + f'{res_T:.3e}')
 
             self.rec.push_from_state(st)
             t += cfg.dt

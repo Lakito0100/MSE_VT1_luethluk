@@ -38,7 +38,7 @@ class Frostmodell_Edge:
     def m_dot_rho_f(self, cfg, st, gs, theta):
         Deff = self.D_eff(cfg, st, -1, theta)
         dr = st.s_e[theta] / gs.nr
-        dwf_dr = (cfg.w_amb - st.w_e[-1, theta]) / dr
+        dwf_dr = (st.w_e[-1, theta] - st.w_e[-2, theta]) / dr
         return Deff * cfg.rho_amb * dwf_dr
 
     def m_dot_s_f(self, cfg, geom, st, gs, theta):
@@ -91,13 +91,17 @@ class Frostmodell_Edge:
                         A_T[i,i] = 1
                         b_T[i] = cfg.T_w # Define T_edge ---------------------------------
                     elif i == N-1:
-                        A_w[i,i] = 1
-                        b_w[i] = cfg.w_amb
+                        #A_w[i,i] = self.D_eff(cfg,st,i,theta)/dr + self.h_mass(cfg,geom,theta)
+                        #A_w[i,i-1] = - self.D_eff(cfg,st,i,theta)/dr
+                        #b_w[i] = self.h_mass(cfg,geom,theta) * cfg.w_amb
+                        A_w[i, i] = 1.0
+                        b_w[i] = self.w_sat_coolprop(T_f_old[-1, theta], cfg.p_a)
 
                         A_T[i,i] = -1
                         A_T[i,i-1] = 1
-                        b_T[i] = self.q_dot_lat_fs(cfg, geom, st, gs, theta) * dr / self.k_eff(st, i, theta)
+                        b_T[i] = self.q_dot_tot_fs(cfg, geom, st, gs, theta) * dr / self.k_eff(st, i, theta)
                     else:
+                        w_sat_i = self.w_sat_coolprop(T_f_old[i, theta], cfg.p_a)
                         alpha = (r[i]/r[i+1] - r[i]/r[i-1]) * self.D_eff(cfg, st, i, theta) * st.rho_a[i, theta]
                         beta = -4 * (dr**2) * cfg.C * st.rho_a[i, theta]
                         gamma = (r[i]/r[i+1] - r[i]/r[i-1]) * self.k_eff(st, i, theta)
@@ -105,25 +109,25 @@ class Frostmodell_Edge:
                         A_w[i,i-1] = -alpha
                         A_w[i,i] = beta
                         A_w[i,i+1] = alpha
-                        b_w[i] = beta * cfg.w_amb # Define calculation for w_sat ----------------------
+                        b_w[i] = beta * w_sat_i
 
                         A_T[i,i-1] = -gamma
                         A_T[i,i] = 0
                         A_T[i,i+1] = gamma
-                        b_T[i] = beta * cfg.isv * (w_f_old[i,theta] - cfg.w_amb) # Define calculation for w_sat ----------------------
+                        b_T[i] = beta * cfg.isv * (st.w_e[i,theta] - w_sat_i)
 
                 #print("A_w: ", A_w)
                 #print("b_w: ", b_w)
                 #print("A_T: ", A_T)
                 #print("b_T: ", b_T)
 
+                T_f_new[:, theta] = spsolve(csr_matrix(A_T), b_T)
                 w_f_new[:,theta] = spsolve(csr_matrix(A_w), b_w)
-                T_f_new[:,theta] = spsolve(csr_matrix(A_T), b_T)
 
-            res_T = np.max(np.abs(T_f_new - T_f_old))
-            res_w = np.max(np.abs(w_f_new - w_f_old))
-            T_f_old = T_f_new
-            w_f_old = w_f_new
+            res_T = np.max(np.abs((T_f_new - T_f_old)/T_f_old))
+            res_w = np.max(np.abs((w_f_new - w_f_old)/w_f_old))
+            T_f_old = T_f_new.copy()
+            w_f_old = w_f_new.copy()
             it += 1
 
         st.T_e = T_f_new
@@ -137,14 +141,13 @@ class Frostmodell_Edge:
             for i in range(N):
                 w_sat_i = self.w_sat_coolprop(st.T_e[i, theta], cfg.p_a)
                 source = cfg.C * cfg.rho_amb * (st.w_e[i, theta] - w_sat_i)
-                st.rho_e[i, theta] = np.clip(st.rho_e[i, theta] + source, 1, cfg.rho_i)
+                st.rho_e[i, theta] = np.clip(st.rho_e[i, theta] + source * cfg.dt, 1, cfg.rho_i)
 
 
         for theta in range(gs.ntheta):
             rho_fs = st.rho_e[-1, theta]
-            m_dot_f = self.m_dot_s_f(cfg, geom, st, gs, theta)
-            st.s_e[theta] += m_dot_f / rho_fs
+            m_dot_sf = self.m_dot_s_f(cfg, geom, st, gs, theta)
+            st.s_e[theta] += m_dot_sf / rho_fs
+            st.s_e[theta] = max(st.s_e[theta], 1e-6)
 
         return it, res_T, res_w
-
-

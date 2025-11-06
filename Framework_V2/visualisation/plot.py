@@ -1,81 +1,130 @@
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import pandas as pd
-import numpy as np
 from pathlib import Path
+import numpy as np
+import ast, re
 
-def plot_results(csv_file: str, x: str = None, y: list | None = None,
-                 title: str | None = None, save: bool = True,
-                 dpi: int = 200, show: bool = False) -> str | None:
+def _arr(cell):
+    """Parse array-like CSV cell:
+       - Python-list style:        [1, 2, 3], [[1,2],[3,4]]
+       - NumPy-style (spaces):     [1 2 3],   [[1 2] [3 4]]
+    Returns a numpy array (float).
     """
-    Plot results from a CSV.
+    # numbers already
+    if isinstance(cell, (int, float, np.floating)):
+        return np.array([float(cell)], dtype=float)
 
-    Parameters
-    ----------
-    csv_file : str
-        Path to CSV file.
-    x : str, optional
-        Column to use as x-axis. If None, attempts to guess a time-like column.
-        If none is found, uses the row index.
-    y : list[str], optional
-        Columns to plot on the y-axis. If None, plots all numeric columns except x.
-    title : str, optional
-        Plot title.
-    save : bool, optional
-        If True, saves a PNG next to the CSV with suffix '_plot.png'.
-    dpi : int
-        Figure resolution when saving.
-    show : bool
-        If True, calls plt.show().
+    if not isinstance(cell, str):
+        return np.array([], dtype=float)
 
-    Returns
-    -------
-    str | None
-        Path to the saved PNG if save=True, otherwise None.
-    """
+    s = cell.strip()
+    if not s:
+        return np.array([], dtype=float)
+
+    # 1) try Python-literal directly
+    try:
+        return np.array(ast.literal_eval(s), dtype=float)
+    except Exception:
+        pass
+
+    # 2) NumPy-space style
+    #    normalize to rows by splitting on '][' or ']\s+\[' boundaries
+    inner = s.strip("[]").strip()
+    if not inner:
+        return np.array([], dtype=float)
+
+    # split rows at ][ (with optional spaces)
+    row_strs = re.split(r"\]\s*\[", inner)
+    rows = []
+    for r in row_strs:
+        r_clean = r.strip("[]").strip()
+        if not r_clean:
+            rows.append([])
+            continue
+        # split numbers by whitespace
+        nums = r_clean.split()
+        rows.append([float(x) for x in nums])
+
+    # if single row -> 1D
+    if len(rows) == 1:
+        return np.array(rows[0], dtype=float)
+    # else -> 2D (ragged rows will raise; that’s fine)
+    return np.array(rows, dtype=float)
+
+
+# --- 1) plot value at (r, theta) vs time ---
+def plot_vs_time(csv_file: str, var: str, r_idx: int = -1, theta_idx: int | None = None,
+                 t_col: str | None = None, save: bool = True):
     df = pd.read_csv(csv_file)
 
-    # Choose x axis
-    if x is None:
-        x = _guess_x_column(list(df.columns))
-        if x is None:
-            df = df.reset_index().rename(columns={"index": "index"})
-            x = "index"
+    # pick time column (or use index)
+    if t_col is None or t_col not in df.columns:
+        df = df.reset_index().rename(columns={"index": "t"})
+        t_col = "t"
 
-    # Choose y columns
-    if y is None:
-        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
-        y_cols = [c for c in numeric_cols if c != x]
-    else:
-        y_cols = y
+    # build y(t) by slicing each timestep's array
+    y = []
+    for cell in df[var]:
+        a = _arr(cell).squeeze()
+        if a.ndim == 1:                      # shape: [r]
+            y.append(float(a[r_idx]))
+        else:                                # shape: [r, theta] (or transposed)
+            if theta_idx is None: theta_idx = 0
+            try:
+                y.append(float(a[r_idx, theta_idx]))
+            except Exception:
+                y.append(float(a[theta_idx]))
 
-    if len(y_cols) == 0:
-        raise ValueError("No numeric columns to plot. Provide 'y' or ensure the CSV has numeric data.")
+    # plot
+    plt.figure(figsize=(8,4))
+    plt.plot(df[t_col].values, y)
+    plt.xlabel(t_col); plt.ylabel(f"{var} @ r={r_idx}" + (f", θ={theta_idx}" if theta_idx is not None else ""))
+    plt.title(f"{Path(csv_file).stem}: {var} vs time")
+    plt.grid(True)
+    for tick in plt.gca().get_xticklabels():
+        tick.set_rotation(20); tick.set_ha("right")
 
-    # Plot
-    fig = plt.figure()
-    ax = fig.add_subplot(111)
-    for col in y_cols:
-        ax.plot(df[x], df[col], label=col)
-
-    ax.set_xlabel(x)
-    ax.set_ylabel("Value")
-    ax.set_title(title or f"Results from {Path(csv_file).name}")
-    ax.grid(True)
-    ax.legend(loc="best")
-
-    out_path = None
+    out = None
     if save:
-        out_path = Path(csv_file).with_suffix("")  # strip .csv
-        out_path = Path(str(out_path) + "_plot.png")
-        fig.savefig(out_path, dpi=dpi, bbox_inches="tight")
+        out = Path(csv_file).with_suffix("")
+        out = Path(f"{out}_{var}_vs_time_r{r_idx}" + (f"_th{theta_idx}" if theta_idx is not None else "") + ".png")
+        plt.savefig(out, dpi=300, bbox_inches="tight")
+    plt.show()
+    return str(out) if save else None
 
-    if show:
-        plt.show()
+# --- 2) plot profile vs r at a chosen time row ---
+def plot_vs_r(csv_file: str, var: str, row: int = -1, theta_idx: int | None = None,
+              save: bool = True):
+    df = pd.read_csv(csv_file)
+    a = _arr(df[var].iloc[row]).squeeze()
+
+    if a.ndim == 0:
+        raise ValueError(f"'{var}' at row {row} is scalar; cannot plot vs r.")
+    if a.ndim == 1:
+        y = a                          # already [r]
     else:
-        plt.close(fig)
+        if theta_idx is None: theta_idx = 0
+        try:
+            y = a[:, theta_idx]        # [r, theta]
+        except Exception:
+            y = a.T[:, theta_idx]      # fallback if stored transposed
 
-    return str(out_path) if save else None
+    x = np.arange(len(y))              # r index (no physical r given in CSV)
+    plt.figure(figsize=(8,4))
+    plt.plot(x, y)
+    plt.xlabel("r index"); plt.ylabel(var)
+    plt.title(f"{Path(csv_file).stem}: {var} vs r (time={row}" + (f", θ={theta_idx}" if theta_idx is not None else "") + ")")
+    plt.grid(True)
+
+    out = None
+    if save:
+        out = Path(csv_file).with_suffix("")
+        out = Path(f"{out}_{var}_vs_r_row{row}" + (f"_th{theta_idx}" if theta_idx is not None else "") + ".png")
+        plt.savefig(out, dpi=300, bbox_inches="tight")
+    plt.show()
+    return str(out) if save else None
+
 
 def plot_finned_tube_side(he):
     L   = he.l_rohr()

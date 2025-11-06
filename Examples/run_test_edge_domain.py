@@ -1,12 +1,11 @@
-from idlelib.autocomplete import TRY_A
-
 from Framework_V2.core.config import CaseConfig, GridShape
 from Framework_V2.core.geometry import FinnTubedHX
 from Framework_V2.models import Frostmodell_V1
 from Framework_V2.runtime.simulator import Simulator
 from Framework_V2.visualisation import plot
-
 from CoolProp.HumidAirProp import HAPropsSI
+
+
 
 T_a = 16
 T_w = -10
@@ -37,8 +36,8 @@ cfg = CaseConfig(
     h_sub= 334,         # kJ/kg latent heat of ablimation for water vapor
 
     # numerics
-    t_end = 60*60,      # s endtime
-    dt = 5              # s time step
+    t_end = 60,      # s endtime
+    dt = 1              # s time step
 )
 
 geom = FinnTubedHX(
@@ -58,8 +57,8 @@ gs = GridShape(
 
 sim = Simulator(fields=("t","s_e"))
 
-#plot.plot_finned_tube_side(geom)
+result_file = "results_test_edge.csv"
 
 results = sim.run(cfg, geom, gs, Frostmodell_V1)
-results.to_csv("results_test_edge.csv")
-#plot.plot_frostdicke_at_theta(results, 'w_e', 0)
+results.to_csv(result_file)
+plot.plot_results(result_file, "t", "s_e", "Plot der Resultate", False, 400, True)

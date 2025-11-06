@@ -12,7 +12,7 @@ def init_fields(cfg, st, gs):
     st.T_e = np.zeros((gs.nr, gs.ntheta), dtype=float)
     st.T_e[:, :] = cfg.T_w # Add calculation for finn edge temperature
     st.rho_e = np.zeros((gs.nr, gs.ntheta), dtype=float)
-    st.rho_e[:, :] = 100  # Define initial density
+    st.rho_e[:, :] = 50  # Define initial density
     st.rho_a = np.zeros((gs.nr, gs.ntheta), dtype=float)
     st.rho_a[:, :] = cfg.rho_amb
     st.w_e = np.zeros((gs.nr, gs.ntheta), dtype=float)

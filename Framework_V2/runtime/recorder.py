@@ -2,37 +2,47 @@ from __future__ import annotations
 import csv
 from typing import Iterable, Mapping, Any
 
-class ResultRecorder:
+# --- ResultRecorder: minimaler Patch ---
+import numpy as np
+import copy
 
-    def __init__(self, fields: Iterable[str] = ("t", "s_e")):
-        self.data: dict[str, list[Any]] = {k: [] for k in fields}
-        self._n = 0  # Anzahl Zeilen (Timesteps)
+class ResultRecorder:
+    def __init__(self, fields=("t", "s_e")):
+        self.data = {k: [] for k in fields}
+        self._n = 0
 
     def add_field(self, name: str) -> None:
         if name not in self.data:
-            # rückwirkend mit None auffüllen
             self.data[name] = [None] * self._n
 
-    def push(self, **values: Any) -> None:
+    def push(self, **values):
         # neue Felder on-the-fly akzeptieren
         for k in values.keys():
             if k not in self.data:
                 self.add_field(k)
 
-        # Werte schreiben (für nicht gelieferte Felder None eintragen)
+        # WICHTIG: Mutables kopieren (v.a. NumPy-Arrays)
+        def _snapshot(v):
+            if isinstance(v, np.ndarray):
+                return v.copy()
+            # optional: tiefe Kopie für Listen/Dicts
+            if isinstance(v, (list, dict)):
+                return copy.deepcopy(v)
+            return v
+
         for k in self.data.keys():
-            self.data[k].append(values.get(k, None))
+            self.data[k].append(_snapshot(values.get(k, None)))
 
         self._n += 1
 
-    def push_from_state(self, state_obj: Any, **extras: Any) -> None:
-        row: dict[str, Any] = {}
-        # alle public-Attribute des States lesen (ohne __dunder__)
+    def push_from_state(self, state_obj, **extras):
+        row = {}
         for k, v in vars(state_obj).items():
             if not k.startswith("_"):
                 row[k] = v
         row.update(extras)
         self.push(**row)
+
 
     # ----------------- Exporte -----------------
     def to_csv(self, path: str) -> None:
