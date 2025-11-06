@@ -1,26 +1,81 @@
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
+import pandas as pd
+import numpy as np
+from pathlib import Path
 
-def plot_frostdicke_at_theta(results, variabel_x, theta ,time_unit="s", show=True, savepath=None):
-    # results kann entweder ein ResultRecorder (mit .data) oder ein dict sein
-    data = results.data
-    t = data["t"]
-    fx = data[variabel_x]             # Frostdicke in m
+def plot_results(csv_file: str, x: str = None, y: list | None = None,
+                 title: str | None = None, save: bool = True,
+                 dpi: int = 200, show: bool = False) -> str | None:
+    """
+    Plot results from a CSV.
 
-    if time_unit == "min":
-        t = [ti / 60.0 for ti in t]
-        xlabel = "Zeit [min]"
+    Parameters
+    ----------
+    csv_file : str
+        Path to CSV file.
+    x : str, optional
+        Column to use as x-axis. If None, attempts to guess a time-like column.
+        If none is found, uses the row index.
+    y : list[str], optional
+        Columns to plot on the y-axis. If None, plots all numeric columns except x.
+    title : str, optional
+        Plot title.
+    save : bool, optional
+        If True, saves a PNG next to the CSV with suffix '_plot.png'.
+    dpi : int
+        Figure resolution when saving.
+    show : bool
+        If True, calls plt.show().
+
+    Returns
+    -------
+    str | None
+        Path to the saved PNG if save=True, otherwise None.
+    """
+    df = pd.read_csv(csv_file)
+
+    # Choose x axis
+    if x is None:
+        x = _guess_x_column(list(df.columns))
+        if x is None:
+            df = df.reset_index().rename(columns={"index": "index"})
+            x = "index"
+
+    # Choose y columns
+    if y is None:
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        y_cols = [c for c in numeric_cols if c != x]
     else:
-        xlabel = "Zeit [s]"
+        y_cols = y
 
-    plt.plot(t, fx[:, theta], linewidth=2)
-    plt.xlabel(xlabel)
-    plt.ylabel(variabel_x)
-    plt.title("Param über der Zeit")
-    plt.grid(True, alpha=0.3)
+    if len(y_cols) == 0:
+        raise ValueError("No numeric columns to plot. Provide 'y' or ensure the CSV has numeric data.")
 
-    plt.show()
-    return plt
+    # Plot
+    fig = plt.figure()
+    ax = fig.add_subplot(111)
+    for col in y_cols:
+        ax.plot(df[x], df[col], label=col)
+
+    ax.set_xlabel(x)
+    ax.set_ylabel("Value")
+    ax.set_title(title or f"Results from {Path(csv_file).name}")
+    ax.grid(True)
+    ax.legend(loc="best")
+
+    out_path = None
+    if save:
+        out_path = Path(csv_file).with_suffix("")  # strip .csv
+        out_path = Path(str(out_path) + "_plot.png")
+        fig.savefig(out_path, dpi=dpi, bbox_inches="tight")
+
+    if show:
+        plt.show()
+    else:
+        plt.close(fig)
+
+    return str(out_path) if save else None
 
 def plot_finned_tube_side(he):
     L   = he.l_rohr()

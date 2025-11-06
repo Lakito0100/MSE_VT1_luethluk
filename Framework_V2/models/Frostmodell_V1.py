@@ -3,8 +3,14 @@ from scipy.sparse import lil_matrix, csr_matrix
 from scipy.sparse.linalg import spsolve
 from dataclasses import field
 from Framework_V2.core.corrolations import DK
+from CoolProp.HumidAirProp import HAPropsSI
 
 class Frostmodell_Edge:
+
+    @staticmethod
+    def w_sat_coolprop(Tf_C: float, p_Pa: float) -> float:
+        Tf_K = Tf_C + 273.15
+        return HAPropsSI("W", "T", Tf_K, "P", p_Pa, "R", 1.0)
 
     @staticmethod
     def Nu_edge(cfg, geom, theta):
@@ -68,7 +74,7 @@ class Frostmodell_Edge:
             for theta in range(gs.ntheta):
                 r_end = float(st.s_e[theta]) + geom.fin_pitch*0.5
                 r = np.linspace(geom.fin_pitch*0.5, r_end, gs.nr)
-                N = len(r)+1
+                N = len(r)
                 dr = r[1] - r[0]
 
                 A_w = lil_matrix((N, N), dtype=float)
@@ -84,7 +90,7 @@ class Frostmodell_Edge:
 
                         A_T[i,i] = 1
                         b_T[i] = cfg.T_w # Define T_edge ---------------------------------
-                    elif i == len(r)-1:
+                    elif i == N-1:
                         A_w[i,i] = 1
                         b_w[i] = cfg.w_amb
 
@@ -106,10 +112,10 @@ class Frostmodell_Edge:
                         A_T[i,i+1] = gamma
                         b_T[i] = beta * cfg.isv * (w_f_old[i,theta] - cfg.w_amb) # Define calculation for w_sat ----------------------
 
-                print(A_w)
-                print(b_w)
-                print(A_T)
-                print(b_T)
+                #print("A_w: ", A_w)
+                #print("b_w: ", b_w)
+                #print("A_T: ", A_T)
+                #print("b_T: ", b_T)
 
                 w_f_new[:,theta] = spsolve(csr_matrix(A_w), b_w)
                 T_f_new[:,theta] = spsolve(csr_matrix(A_T), b_T)
@@ -125,10 +131,19 @@ class Frostmodell_Edge:
 
         # calculate s_e and rho_f ----------------------------------------------
 
+        N, ntheta = w_f_new.shape
+
+        for theta in range(ntheta):
+            for i in range(N):
+                w_sat_i = self.w_sat_coolprop(st.T_e[i, theta], cfg.p_a)
+                source = cfg.C * cfg.rho_amb * (st.w_e[i, theta] - w_sat_i)
+                st.rho_e[i, theta] = np.clip(st.rho_e[i, theta] + source, 1, cfg.rho_i)
+
+
         for theta in range(gs.ntheta):
-            s_f_old = st.s_e[theta]
-            s_f_new = s_f_old + self.m_dot_s_f(cfg, geom, st, gs, theta) / st.rho_e[-1,theta]
-            st.s_e[theta] = s_f_new
+            rho_fs = st.rho_e[-1, theta]
+            m_dot_f = self.m_dot_s_f(cfg, geom, st, gs, theta)
+            st.s_e[theta] += m_dot_f / rho_fs
 
         return it, res_T, res_w
 

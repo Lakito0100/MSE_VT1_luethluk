@@ -8,7 +8,7 @@ from Framework_V2.visualisation import plot
 
 from CoolProp.HumidAirProp import HAPropsSI
 
-T_a = 10
+T_a = 16
 T_w = -10
 P = 103500
 RH = 0.8
@@ -37,8 +37,8 @@ cfg = CaseConfig(
     h_sub= 334,         # kJ/kg latent heat of ablimation for water vapor
 
     # numerics
-    t_end = 1,      # s endtime
-    dt = 1              # s time step
+    t_end = 60*60,      # s endtime
+    dt = 5              # s time step
 )
 
 geom = FinnTubedHX(
@@ -52,7 +52,7 @@ geom = FinnTubedHX(
 
 gs = GridShape(
     nx = 100,
-    nr = 4,#100,
+    nr = 100,
     ntheta = 1#90
 )
 
