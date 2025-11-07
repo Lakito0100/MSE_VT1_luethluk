@@ -25,10 +25,10 @@ def plot_frostdicke(results, time_unit="s", show=True, savepath=None):
 
 def plot_finned_tube_side(he):
     L   = he.l_rohr()
-    D   = he.d_rohr_a
+    D   = he.d_tube_a
     N   = int(he.n_rippen)
-    Lf  = he.l_rippen
-    tf  = he.rippen_dicke
+    Lf  = he.l_fin
+    tf  = he.fin_pitch
 
     pitch = L/(N-1) if N > 1 else L
     Hfin = D + 2*Lf  # gesamte Ausladung (Breite) der Lamelle

@@ -1,5 +1,5 @@
 from Framework_V1.core.config import CaseConfig
-from Framework_V1.core.geometry import FlatPlate, LammellenRohrWU
+from Framework_V1.core.geometry import LammellenRohrWU
 from Framework_V1.models import frost_test
 from Framework_V1.runtime.simulator import Simulator
 from Framework_V1.visualisation import plot
@@ -11,7 +11,7 @@ cfg = CaseConfig(
     RH = 0.8,           # -
     p_atm = 100000,     # Pa
     t_end = 10*60,      # s
-    dt = 0.1,           # s
+    dt = 5,           # s
     test_ceof = 3e-5    # m/(s*K)
 )
 
@@ -24,9 +24,10 @@ geom = LammellenRohrWU(
     rohr_dicke= 0.002       # m
 )
 
-sim = Simulator()
+sim = Simulator(fields=("t","x_frost"))
 
 plot.plot_finned_tube_side(geom)
 
 results = sim.run(cfg, frost_test)
+results.to_csv("results.csv")
 plot.plot_frostdicke(results)
