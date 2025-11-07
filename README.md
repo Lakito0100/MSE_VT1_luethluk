@@ -1,1 +1,1 @@
-Launch the Jupyter notebook on Binder: https://mybinder.org/v2/gh/Lakito0100/MSE_VT1_luethluk/HEAD
+Launch the Jupyter notebook on Binder: [![Binder](https://mybinder.org/badge_logo.svg)](https://mybinder.org/v2/gh/Lakito0100/MSE_VT1_luethluk/HEAD)
