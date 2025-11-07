@@ -17,10 +17,11 @@ class Simulator:
 
         while t <= cfg.t_end:
             st.t = t
-            iter, res_T, res_w = model.New_edge_state_seg(cfg, geom, st, gs)
+            iter, res_T, res_w = model.New_edge_state_seg_diverg_form(cfg, geom, st, gs)
             print("Time Step: " + str(it) +
-                  "\t Time: " + f'{t:.4}' +
-                  " s \t Inner Iterations: " + str(iter) +
+                  "\t Time: " + f'{t:.1f}' +
+                  " s | " + f'{t/60:.1f}' +
+                  " min \t Inner Iterations: " + str(iter) +
                   " \t w: " + f'{res_w:.3e}' +
                   " \t T: " + f'{res_T:.3e}')
 

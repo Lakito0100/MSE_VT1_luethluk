@@ -195,7 +195,7 @@ def plot_finned_tube_side(he):
     # Geometrie auslesen
     N   = int(he.n_fin)
     Lf  = float(he.l_fin)         # Ausladung je Seite
-    t_f = float(he.d_fin)         # Finnen-DICKE
+    t_f = float(he.fin_thickness)         # Finnen-DICKE
     p   = float(he.fin_pitch)     # Finnen-PITCH (center-to-center)
     D   = float(he.d_tube_a)
     t_t = float(he.tube_thickness)

@@ -9,16 +9,16 @@ class FlatPlate:
 class FinnTubedHX:
     n_fin: float
     l_fin: float
-    d_fin: float
+    fin_thickness: float
     fin_pitch: float
     d_tube_a: float
     tube_thickness: float
 
     def l_rohr(self):
-        return self.n_fin*(self.fin_pitch + self.d_fin)
+        return self.n_fin*(self.fin_pitch + self.fin_thickness)
 
     def A(self):
-        A_rohr_aussen = self.d_tube_a * math.pi * self.d_fin
+        A_rohr_aussen = self.d_tube_a * math.pi * self.fin_thickness / 2
         A_rippen = (self.l_fin * self.l_fin - self.d_tube_a * self.d_tube_a * math.pi) * 2
         return (A_rohr_aussen + A_rippen) * (self.n_fin - 1)
 
