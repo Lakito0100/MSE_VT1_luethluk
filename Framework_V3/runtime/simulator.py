@@ -1,6 +1,6 @@
-from Framework_V2.runtime.state import SimState
-from Framework_V2.runtime.recorder import ResultRecorder
-from Framework_V2.runtime.initializer import init_fields
+from Framework_V3.runtime.state import SimState
+from Framework_V3.runtime.recorder import ResultRecorder
+from Framework_V3.runtime.initializer import init_fields
 
 class Simulator:
     def __init__(self, fields=("t","x_frost")):
@@ -21,7 +21,7 @@ class Simulator:
             print("Time Step: " + str(it) +
                   "\t Time: " + f'{t:.1f}' +
                   " s | " + f'{t/60:.1f}' +
-                  " min \t Inner Iterations: " + str(iter) +
+                  " min \nEdge Domain Inner Iterations: " + str(iter) +
                   " \t w: " + f'{res_w:.3e}' +
                   " \t T: " + f'{res_T:.3e}')
 

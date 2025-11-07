@@ -240,3 +240,97 @@ def plot_finned_tube_side(he):
     ax.set_title("Lamellenverdampfer – Seitenansicht")
     ax.grid(True, alpha=0.3)
     plt.show()
+
+def plot_frost_polar_slice(
+    y, *,                         # y: (t, θ) oder (t, r, θ) – darf list/obj sein
+    vary="theta",
+    t_idx=None,
+    at_time=None,                 # Sekunden; nimmt nächsten Zeitstempel
+    t=None,                       # Zeitvektor in s (für at_time)
+    r_idx=None,
+    theta_vals=None,
+    theta_max=np.pi/2,
+    unit="mm",
+    title=None,
+    ylabel=None,
+    marker=None,
+    linestyle=None,
+    ax=None,
+    legend=True
+):
+    assert vary == "theta", "Diese Funktion plottet aktuell s_e(θ); setze vary='theta'."
+
+    # --- NEU: y robust in ein 2D/3D-Array überführen ---
+    arr = np.asarray(y, dtype=object)
+    if arr.ndim == 1:
+        # Liste von 1D-Sequenzen -> stacken zu (time, theta)
+        arr = np.vstack([np.asarray(row, dtype=float) for row in arr])
+    else:
+        arr = np.asarray(arr, dtype=float)
+    y = arr
+    assert y.ndim in (2, 3), f"y hat unexpected shape {y.shape}; erwarte (t,θ) oder (t,r,θ)."
+
+    # θ-Achse
+    ntheta = y.shape[-1]
+    if theta_vals is None:
+        theta = np.linspace(0.0, theta_max, ntheta)
+    else:
+        theta = np.asarray(theta_vals)
+        assert len(theta) == ntheta, "theta_vals passt nicht zu y.shape[-1]."
+
+    # Zeitindizes/at_time
+    if t_idx is not None:
+        idxs = np.atleast_1d(t_idx).astype(int)
+    elif at_time is not None:
+        assert t is not None, "Für at_time muss t (Zeitvektor) übergeben werden."
+        t = np.asarray(t).ravel()
+        targets = np.atleast_1d(at_time).astype(float)
+        idxs = np.array([np.abs(t - tau).argmin() for tau in targets], dtype=int)
+    else:
+        idxs = np.array([0], dtype=int)
+
+    # Einheit
+    factor = 1000.0 if unit.lower() == "mm" else 1.0
+    label_unit = "mm" if unit.lower() == "mm" else "m"
+
+    owns_fig = ax is None
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection="polar")
+    else:
+        fig = ax.figure
+
+    # >>> Nur 0..90° anzeigen
+    rad_max = np.deg2rad(90)
+    ax.set_thetalim(0, rad_max)  # Grenzen in Radiant
+    ax.set_thetagrids([0, 30, 60, 90])  # Ticks in Grad
+    ax.set_ylim(bottom=0)
+
+    # Plotten
+    for i in idxs:
+        if i < 0 or i >= y.shape[0]:
+            raise IndexError(f"t_idx {i} liegt außerhalb [0,{y.shape[0]-1}].")
+        if y.ndim == 2:
+            yplot = y[i, :]
+        else:
+            assert r_idx is not None, "Für 3D y bitte r_idx angeben."
+            yplot = y[i, r_idx, :]
+
+        lbl = f"t={t[i]:g} s" if (t is not None and len(np.shape(t))==1 and i < len(t)) else f"t_idx={i}"
+        ax.plot(theta, yplot * factor,
+                label=lbl,
+                marker=marker if marker is not None else None,
+                linestyle=linestyle if linestyle is not None else None)
+
+    ax.set_theta_zero_location("W")
+    ax.set_theta_direction(-1)
+    ax.set_rlabel_position(135)
+    if title:
+        ax.set_title(title)
+    ax.set_ylabel(ylabel if ylabel else f"s_e [{label_unit}]")
+    if legend:
+        ax.legend(loc="upper left")#, bbox_to_anchor=(1.3, 1.1))
+
+    if owns_fig:
+        plt.show()
+    return fig, ax

@@ -1,6 +1,7 @@
 from __future__ import annotations
-import csv
-from typing import Iterable, Mapping, Any
+import json
+import numpy as np
+import pandas as pd
 
 # --- ResultRecorder: minimaler Patch ---
 import numpy as np
@@ -44,11 +45,21 @@ class ResultRecorder:
         self.push(**row)
 
 
-    # ----------------- Exporte -----------------
-    def to_csv(self, path: str) -> None:
-        cols = list(self.data.keys())
-        rows = zip(*[self.data[c] for c in cols])
-        with open(path, "w", newline="", encoding="utf-8") as f:
-            w = csv.writer(f)
-            w.writerow(cols)
-            w.writerows(rows)
+    # ----------------- Exporter -----------------
+    @staticmethod
+    def to_csv(path: str, data):
+        # data: dict mit Arrays, z.B.:
+        # t: (nt,), s_e: (nt, nθ), T_e: (nt, nr, nθ), ...
+        nt = len(data["t"])
+        df = pd.DataFrame({"t": data["t"]})
+
+        def col_from_timeslices(arr):
+            # arr: (nt, ...) -> Liste mit JSON-Strings je Zeit
+            return [json.dumps(np.asarray(arr[i]).tolist()) for i in range(nt)]
+
+        for k, v in data.items():
+            if k == "t":
+                continue
+            df[k] = col_from_timeslices(v)
+
+        df.to_csv(path, index=False)
