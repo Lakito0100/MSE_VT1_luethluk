@@ -1,6 +1,6 @@
 from dataclasses import dataclass
 
-@dataclass(frozen=True)
+@dataclass(frozen=False)
 class CaseConfig:
     # air data
     T_a: float          # °C temperature air

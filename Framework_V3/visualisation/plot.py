@@ -304,7 +304,6 @@ def plot_frost_polar_slice(
     rad_max = np.deg2rad(90)
     ax.set_thetalim(0, rad_max)  # Grenzen in Radiant
     ax.set_thetagrids([0, 30, 60, 90])  # Ticks in Grad
-    ax.set_ylim(bottom=0)
 
     # Plotten
     for i in idxs:
