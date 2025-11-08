@@ -1,6 +1,7 @@
 from Framework_V3.runtime.state import SimState
 from Framework_V3.runtime.recorder import ResultRecorder
 from Framework_V3.runtime.initializer import init_fields
+from Framework_V3.runtime import dynamic_models
 
 class Simulator:
     def __init__(self, fields=("t","x_frost")):
@@ -17,7 +18,12 @@ class Simulator:
 
         while t <= cfg.t_end:
             st.t = t
+
+            #cfg.v_a = dynamic_models.velocity(t)
+            #print(f"Geschwindigkeit angepasst auf: {cfg.v_a:.2f}")
+
             iter, res_T, res_w = model.New_edge_state_seg_diverg_form(cfg, geom, st, gs)
+            #iter, res_T, res_w = model.New_edge_state_seg(cfg, geom, st, gs)
             print("Time Step: " + str(it) +
                   "\t Time: " + f'{t:.1f}' +
                   " s | " + f'{t/60:.1f}' +

@@ -268,6 +268,26 @@ class Frostmodell_Edge:
 
         # -------------------------------------------------------------
 
+        aitken_states_w = [{'omega': 0.6, 'dprev': None} for _ in range(gs.ntheta)]
+        aitken_states_T = [{'omega': 0.6, 'dprev': None} for _ in range(gs.ntheta)]
+
+        def aitken_update(x_old, x_new, state, lo=0.15, hi=0.95):
+            d = (x_new - x_old).ravel()
+            if state['dprev'] is None:
+                omega = state['omega']
+            else:
+                dd = d - state['dprev']
+                denom = float(dd @ dd)
+                if denom > 1e-30:
+                    omega = state['omega'] * (-(float(d @ dd)) / denom)
+                else:
+                    omega = state['omega']
+            omega = float(np.clip(omega, lo, hi))
+            x_relaxed = x_old + omega * (x_new - x_old)
+            state['omega'] = omega
+            state['dprev'] = d.copy()
+            return x_relaxed, omega
+
         while (it < niter) and ((rel_T > tol) or (rel_w > tol)):
             # Residuen-Basis (vor diesem Swep)
             T_prev = T_f_old.copy()
@@ -326,9 +346,9 @@ class Frostmodell_Edge:
                 A_w[N - 1, N - 1] = 1.0
                 b_w[N - 1] = float(w_sat_clip_vec(Tfs_old))
 
-                # Solve ω und unterrelaxieren (Gauss–Seidel-Kopplung ω→T)
+                # Solve ω
                 w_f_new[:, j] = spsolve(csr_matrix(A_w), b_w)
-                w_f_old[:, j] = (1.0 - omega_w) * w_f_old[:, j] + omega_w * w_f_new[:, j]
+                w_f_old[:, j], omega_wj = aitken_update(w_f_old[:, j], w_f_new[:, j], aitken_states_w[j])
 
                 # Surface-Flüsse jetzt mit FRISCHEM ω
                 wfs = float(w_f_old[-1, j])
@@ -372,9 +392,9 @@ class Frostmodell_Edge:
                 A_T[N - 1, N - 2] = -1.0
                 b_T[N - 1] = q_tot * dr / float(k_eff_vec[-1])
 
-                # Solve T und unterrelaxieren
+                # Solve T
                 T_f_new[:, j] = spsolve(csr_matrix(A_T), b_T)
-                T_f_old[:, j] = (1.0 - omega_T) * T_f_old[:, j] + omega_T * T_f_new[:, j]
+                T_f_old[:, j], omega_Tj = aitken_update(T_f_old[:, j], T_f_new[:, j], aitken_states_T[j])
 
             # Residuen (relativ) für den ganzen Sweep
             res_T = np.max(np.abs(T_f_old - T_prev))
