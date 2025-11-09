@@ -8,7 +8,7 @@ class Simulator:
         self.rec = ResultRecorder(fields=fields)
 
 
-    def run(self, cfg, geom, gs, model):
+    def run(self, cfg, geom, gs, model, solver):
         st = SimState()
         init_fields(cfg, st, gs)
         model = model.Frostmodell_Edge()
@@ -22,8 +22,12 @@ class Simulator:
             #cfg.v_a = dynamic_models.velocity(t)
             #print(f"Geschwindigkeit angepasst auf: {cfg.v_a:.2f}")
 
-            iter, res_T, res_w = model.New_edge_state_seg_diverg_form(cfg, geom, st, gs)
-            #iter, res_T, res_w = model.New_edge_state_seg(cfg, geom, st, gs)
+            match solver:
+                case "1":
+                    iter, res_T, res_w = model.New_edge_state_seg(cfg, geom, st, gs)
+                case "2":
+                    iter, res_T, res_w = model.New_edge_state_seg_diverg_form(cfg, geom, st, gs)
+
             print("Time Step: " + str(it) +
                   "\t Time: " + f'{t:.1f}' +
                   " s | " + f'{t/60:.1f}' +

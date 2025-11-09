@@ -114,11 +114,11 @@ class Frostmodell_Edge:
                         A_T[i,i] = 1.0
                         b_T[i] = cfg.T_w # Define T_edge ---------------------------------
                     elif i == N-1:
-                        #A_w[i,i] = self.D_eff(cfg,st,i,j)*st.rho_a[i,j]/dr + self.h_mass(cfg,geom,j)
-                        #A_w[i,i-1] = - self.D_eff(cfg,st,i,j)*st.rho_a[i,j]/dr
-                        #b_w[i] = self.h_mass(cfg,geom,j) * cfg.w_amb * cfg.rho_amb
-                        A_w[i, i] = 1.0
-                        b_w[i] = self.w_sat_coolprop(T_f_old[-1, j], cfg.p_a)
+                        A_w[i,i] = self.D_eff(cfg,st,i,j)*st.rho_a[i,j]/dr + self.h_mass(cfg,geom,j)
+                        A_w[i,i-1] = - self.D_eff(cfg,st,i,j)*st.rho_a[i,j]/dr
+                        b_w[i] = self.h_mass(cfg,geom,j) * cfg.w_amb * cfg.rho_amb
+                        #A_w[i, i] = 1.0
+                        #b_w[i] = self.w_sat_coolprop(T_f_old[-1, j], cfg.p_a)
 
                         A_T[i,i] = 1.0
                         A_T[i,i-1] = -1.0
@@ -162,52 +162,6 @@ class Frostmodell_Edge:
 
                 T_f_new[:, j] = spsolve(csr_matrix(A_T), b_T)
                 w_f_new[:,j] = spsolve(csr_matrix(A_w), b_w)
-
-                # To be deleted ----------------------------------------------------------------------------------------
-                # ==== Diagnose für θ=j ====
-                # Geometrie
-                r_start = 0.5 * geom.fin_thickness
-                r_end = r_start + float(st.s_e[j])
-                r = np.linspace(r_start, r_end, gs.nr)
-                dr = r[1] - r[0]
-
-                # Oberfläche
-                Tfs = float(T_f_new[-1, j])
-                wfs = float(w_f_new[-1, j])
-                wfs_sat = float(self.w_sat_coolprop(Tfs, cfg.p_a))
-
-                h = self.h_conv(cfg, geom, j)
-                hm = self.h_mass(cfg, geom, j)  # = h/(rho_amb*c_p_a)
-                m_f = hm * cfg.rho_amb * (cfg.w_amb - wfs)  # Konvektion von außen
-                De_s = float(self.D_eff(cfg, st, -1, j))
-                rho_a_s = float(st.rho_a[-1, j])
-                gradw = float((w_f_new[-1, j] - w_f_new[-2, j]) / dr)
-                m_rho = De_s * rho_a_s * gradw  # Diffusion in den Frost
-                m_delta = m_f - m_rho
-
-                q_sens = h * (cfg.T_a - Tfs)
-                q_lat = cfg.h_sub * m_delta
-                q_tot = q_sens + q_lat
-
-                #print(f"[θ={j}] s_e={st.s_e[j]:.3e} m  dr={dr:.3e} m")
-                #print(f"  Tfs={Tfs:.3f} °C  wfs={wfs:.5e}  w_sat(Tfs)={wfs_sat:.5e}")
-                #print(f"  De_s={De_s:.3e}  rho_a_s={rho_a_s:.4f}  gradw_fs={gradw:.3e}")
-                #print(f"  m_f={m_f:.5e}  m_rho={m_rho:.5e}  m_delta={m_delta:.5e}  [kg/(m²·s)]")
-                #print(f"  q_sens={q_sens:.1f}  q_lat={q_lat:.1f}  q_tot={q_tot:.1f}  [W/m²]")
-
-                # Innen: einfache Konsistenzchecks
-                #print(f"  Tmin/Tmax={T_f_new[:, j].min():.3f}/{T_f_new[:, j].max():.3f} °C")
-                #print(f"  wmin/wmax={w_f_new[:, j].min():.5e}/{w_f_new[:, j].max():.5e}")
-
-                # Volumenquellen (ohne r-Gewichtung; für Zylindersymmetrie optional mit r_i/r_e gewichten)
-                w_sat_vec = np.array([self.w_sat_coolprop(T_f_new[i, j], cfg.p_a) for i in range(gs.nr)])
-                S_m = cfg.C * st.rho_a[:gs.nr, j] * (
-                            w_f_new[:, j] - w_sat_vec)  # [kg_da/(m³·s)]*kg_w/kg_da -> kg_w/(m³·s)
-                S_q = - cfg.isv * S_m  # [W/m³]
-                M_vol = S_m.sum() * dr
-                Q_vol = S_q.sum() * dr
-                #print(f"  M_vol≈{M_vol:.5e} kg/(m²·s)   Q_vol≈{Q_vol:.1f} W/m²")
-                # To be deleted ----------------------------------------------------------------------------------------
 
             res_T = np.max(np.abs(T_f_new - T_f_old))
             res_w = np.max(np.abs(w_f_new - w_f_old))
