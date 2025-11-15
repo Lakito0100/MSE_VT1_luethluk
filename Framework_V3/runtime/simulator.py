@@ -26,6 +26,8 @@ class Simulator:
                 case "1":
                     iter, res_T, res_w = model.New_edge_state_seg(cfg, geom, st, gs)
                 case "2":
+                    iter, res_T, res_w = model.New_edge_state_seg_without_d_diffusion(cfg, geom, st, gs)
+                case "3":
                     iter, res_T, res_w = model.New_edge_state_seg_diverg_form(cfg, geom, st, gs)
 
             print("Time Step: " + str(it) +

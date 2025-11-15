@@ -17,7 +17,7 @@ def init_fields(cfg, st, gs):
     st.w_e = np.zeros((gs.nr, gs.ntheta), dtype=float)
     st.w_e[:, :] = Frostmodell_Edge.w_sat_coolprop(cfg.T_w,cfg.p_a) # water vapor moisture content
     st.rho_a = np.zeros((gs.nr, gs.ntheta), dtype=float)
-    st.rho_a[:, :] = Frostmodell_Edge.rho_a_dry_local(st.T_e[0,0],st.w_e[0,0],cfg.p_a)
+    st.rho_a[:, :] = Frostmodell_Edge.rho_a_dry_local(st.T_e[0,0],cfg.p_a)
 
     # Initializing finn and tube domain
     st.T_ft = np.zeros(gs.nx, dtype=float)

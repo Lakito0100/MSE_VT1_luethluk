@@ -25,12 +25,12 @@ class Frostmodell_Edge:
         T_fs = st.T_e[-1, theta]
         return self.h_conv(cfg, geom, theta) * (cfg.T_a - T_fs)
 
-    def h_mass(self, cfg, geom, theta):
+    def h_mass(self, cfg, geom, st, theta):
         h = self.h_conv(cfg, geom, theta)
-        return h / (cfg.rho_amb * cfg.c_p_a)
+        return h / (st.rho_a[-1,theta] * cfg.c_p_a)
 
     def m_dot_f(self, cfg, geom, st, theta):
-        hm = self.h_mass(cfg, geom, theta)
+        hm = self.h_mass(cfg, geom, st, theta)
         w_fs = st.w_e[-1, theta]
         return hm * st.rho_a[-1,theta] * (cfg.w_amb - w_fs)
 
@@ -60,12 +60,10 @@ class Frostmodell_Edge:
         return 0.132 + 3.13e-4 * st.rho_e[r,theta] + 1.6e-7 * (st.rho_e[r,theta])**2
 
     @staticmethod
-    def rho_a_dry_local(Tf_C, w, p_Pa):
+    def rho_a_dry_local(Tf_C, p_Pa):
         Tf_K = np.asarray(Tf_C) + 273.15
-        w = np.asarray(w)
-        Rd = 287.058
-        eps = 0.62198
-        return p_Pa / (Rd * Tf_K * (1.0 + w / eps))
+        R = 287.058
+        return p_Pa / (R*Tf_K)
 
     def New_edge_state_seg(self, cfg, geom, st, gs, tol = 1e-6, niter = 1000):
         it = 0
@@ -84,13 +82,14 @@ class Frostmodell_Edge:
                 N = len(r)
 
                 # lokale trockene Luftdichte im Frost aktualisieren (über alle Radialknoten)
-                st.rho_a[:N, j] = self.rho_a_dry_local(T_f_old[:N, j], w_f_old[:N, j], cfg.p_a)
+                st.rho_a[:N, j] = self.rho_a_dry_local(T_f_old[:N, j], cfg.p_a)
 
                 dr = r[1] - r[0]
                 Tfs = T_f_old[-1, j]
-                wfs = w_f_old[-1, j]
-                hm = self.h_mass(cfg, geom, j) * cfg.rho_amb  # hm·ρ_a (vgl. 9.10–9.11)
-                m_f = hm * (cfg.w_amb - wfs)  # (9.11)
+                wfs = self.w_sat_coolprop(Tfs, cfg.p_a)
+                rho_afs = st.rho_a[-1, j]
+                hm = self.h_conv(cfg, geom, j) / (rho_afs * cfg.c_p_a)
+                m_f = hm * rho_afs * (cfg.w_amb - wfs)  # (9.11)
                 De_s = self.D_eff(cfg, st, -1, j)
                 rhoa_s = st.rho_a[-1, j]
                 gradw = (w_f_old[-1, j] - w_f_old[-2, j]) / dr
@@ -114,15 +113,15 @@ class Frostmodell_Edge:
                         A_T[i,i] = 1.0
                         b_T[i] = cfg.T_w # Define T_edge ---------------------------------
                     elif i == N-1:
-                        A_w[i,i] = self.D_eff(cfg,st,i,j)*st.rho_a[i,j]/dr + self.h_mass(cfg,geom,j)
-                        A_w[i,i-1] = - self.D_eff(cfg,st,i,j)*st.rho_a[i,j]/dr
-                        b_w[i] = self.h_mass(cfg,geom,j) * cfg.w_amb * cfg.rho_amb
-                        #A_w[i, i] = 1.0
-                        #b_w[i] = self.w_sat_coolprop(T_f_old[-1, j], cfg.p_a)
+                        #A_w[i,i] = self.D_eff(cfg,st,i,j)*st.rho_a[i,j]/dr + self.h_mass(cfg,geom,j)
+                        #A_w[i,i-1] = - self.D_eff(cfg,st,i,j)*st.rho_a[i,j]/dr
+                        #b_w[i] = self.h_mass(cfg,geom,j) * cfg.w_amb * cfg.rho_amb
+                        A_w[i, i] = 1.0
+                        b_w[i] = self.w_sat_coolprop(T_f_old[-1, j], cfg.p_a)
 
                         A_T[i,i] = 1.0
                         A_T[i,i-1] = -1.0
-                        b_T[i] = q_tot * dr / self.k_eff(st, -1, j)
+                        b_T[i] = -q_tot * dr / self.k_eff(st, -1, j)
                     else:
                         w_sat_i = self.w_sat_coolprop(T_f_old[i, j], cfg.p_a)
 
@@ -154,6 +153,116 @@ class Frostmodell_Edge:
                                    (-self.k_eff(st,i+1,j)) +
                                    self.k_eff(st,i-1,j) -
                                    4*self.k_eff(st,i,j)*r[i])/(4*(dr**2)*r[i])
+
+                        A_T[i,i+1] = alpha_T
+                        A_T[i,i] = beta_T
+                        A_T[i,i-1] = gamma_T
+                        b_T[i] = -cfg.isv*cfg.C*st.rho_a[i,j]*(w_f_old[i,j]-w_sat_i)
+
+                T_f_new[:, j] = spsolve(csr_matrix(A_T), b_T)
+                w_f_new[:,j] = spsolve(csr_matrix(A_w), b_w)
+
+            res_T = np.max(np.abs(T_f_new - T_f_old))
+            res_w = np.max(np.abs(w_f_new - w_f_old))
+            T_f_old = T_f_new.copy()
+            w_f_old = w_f_new.copy()
+            it += 1
+
+        st.T_e = T_f_new
+        st.w_e = w_f_new
+
+        # calculate s_e and rho_f
+
+        N, ntheta = w_f_new.shape
+
+        for j in range(ntheta):
+            for i in range(N):
+                w_sat_i = self.w_sat_coolprop(st.T_e[i, j], cfg.p_a)
+                source = cfg.C * st.rho_a[i,j] * (st.w_e[i, j] - w_sat_i)
+                st.rho_e[i, j] = np.clip(st.rho_e[i, j] + source * cfg.dt, 1, cfg.rho_i)
+
+
+        for j in range(gs.ntheta):
+            rho_fs = st.rho_e[-1, j]
+            m_dot_sf = self.m_dot_s_f(cfg, geom, st, gs, j)
+            st.s_e[j] += (m_dot_sf / rho_fs) * cfg.dt
+            st.s_e[j] = max(st.s_e[j], 1e-6)
+
+        return it, res_T, res_w
+
+    def New_edge_state_seg_without_d_diffusion(self, cfg, geom, st, gs, tol = 1e-6, niter = 1000):
+        it = 0
+        res_T = res_w = np.inf
+        T_f_old = np.asarray(st.T_e, dtype=float).copy()
+        w_f_old = np.asarray(st.w_e, dtype=float).copy()
+        T_f_new = np.empty_like(T_f_old)
+        w_f_new = np.empty_like(w_f_old)
+
+        while (it < niter) and ((res_T > tol) or (res_w > tol)):
+
+            for j in range(gs.ntheta):
+                r_start = geom.fin_thickness*0.5
+                r_end = float(st.s_e[j]) + r_start
+                r = np.linspace(r_start, r_end, gs.nr)
+                N = len(r)
+
+                # lokale trockene Luftdichte im Frost aktualisieren (über alle Radialknoten)
+                st.rho_a[:N, j] = self.rho_a_dry_local(T_f_old[:N, j], cfg.p_a)
+
+                dr = r[1] - r[0]
+                Tfs = T_f_old[-1, j]
+                wfs = self.w_sat_coolprop(Tfs, cfg.p_a)
+                rho_afs = st.rho_a[-1,j]
+                hm = self.h_conv(cfg, geom, j) / (rho_afs*cfg.c_p_a)
+                m_f = hm * rho_afs * (cfg.w_amb - wfs)  # (9.11)
+                De_s = self.D_eff(cfg, st, -1, j)
+                gradw = (w_f_old[-1, j] - w_f_old[-2, j]) / dr
+                m_rho = De_s * rho_afs * gradw  # (9.12)
+                m_delta = m_f - m_rho  # (9.13)
+
+                q_sens = self.h_conv(cfg, geom, j) * (cfg.T_a - Tfs)  # (9.9)
+                q_tot = q_sens + cfg.h_sub * m_delta  # (9.16)
+
+                A_w = lil_matrix((N, N), dtype=float)
+                b_w = np.zeros(N)
+                A_T = lil_matrix((N, N), dtype=float)
+                b_T = np.zeros(N)
+
+                for i in range(len(r)):
+                    if i == 0:
+                        A_w[i,i] = -1.0
+                        A_w[i,i+1] = 1.0
+                        b_w[i] = 0.0
+
+                        A_T[i,i] = 1.0
+                        b_T[i] = cfg.T_w # Define T_edge ---------------------------------
+                    elif i == N-1:
+                        #A_w[i,i] = self.D_eff(cfg,st,i,j)*st.rho_a[i,j]/dr + self.h_mass(cfg,geom,j)
+                        #A_w[i,i-1] = - self.D_eff(cfg,st,i,j)*st.rho_a[i,j]/dr
+                        #b_w[i] = self.h_mass(cfg,geom,j) * cfg.w_amb * cfg.rho_amb
+                        A_w[i, i] = 1.0
+                        b_w[i] = self.w_sat_coolprop(T_f_old[-1, j], cfg.p_a)
+
+                        A_T[i,i] = 1.0
+                        A_T[i,i-1] = -1.0
+                        b_T[i] = -q_tot * dr / self.k_eff(st, -1, j)
+                    else:
+                        w_sat_i = self.w_sat_coolprop(T_f_old[i, j], cfg.p_a)
+                        Deff = self.D_eff(cfg, st, i, j)
+                        keff = self.k_eff(st, i, j)
+
+                        alpha_w = (2*dr*st.rho_a[i,j] + (st.rho_a[i+1,j]-st.rho_a[i-1,j]+4*st.rho_a[i,j])*r[i])*Deff/(4*(dr**2)*r[i])
+                        beta_w = - cfg.C*st.rho_a[i,j] - 2*Deff*st.rho_a[i,j]/(dr**2)
+                        gamma_w = (-2*dr*st.rho_a[i,j] + (-st.rho_a[i+1,j]+st.rho_a[i-1,j]+4*st.rho_a[i,j])*r[i])*Deff/(4*(dr**2)*r[i])
+
+                        A_w[i,i+1] = alpha_w
+                        A_w[i,i] = beta_w
+                        A_w[i,i-1] = gamma_w
+                        b_w[i] = -cfg.C*st.rho_a[i,j]*w_sat_i
+
+                        alpha_T = (keff/(2*dr*r[i])) + keff/(dr**2)
+                        beta_T = -2*keff/(dr**2)
+                        gamma_T = (keff/(2*dr*r[i])) - keff/(dr**2)
 
                         A_T[i,i+1] = alpha_T
                         A_T[i,i] = beta_T
@@ -256,7 +365,7 @@ class Frostmodell_Edge:
                 dr = r[1] - r[0]
 
                 # lokale trockene Luftdichte im Frost (je Iteration aktualisieren)
-                st.rho_a[:N, j] = self.rho_a_dry_local(T_f_old[:N, j], w_f_old[:N, j], cfg.p_a)
+                st.rho_a[:N, j] = self.rho_a_dry_local(T_f_old[:N, j], cfg.p_a)
 
                 # Feldvektoren
                 rho_a_vec = st.rho_a[:N, j]
@@ -308,7 +417,7 @@ class Frostmodell_Edge:
                 wfs = float(w_f_old[-1, j])
                 gradw = (w_f_old[-1, j] - w_f_old[-2, j]) / dr
                 h = self.h_conv(cfg, geom, j)
-                hm = self.h_mass(cfg, geom, j)  # = h / (rho_amb * c_p)
+                hm = self.h_mass(cfg, geom, st, j)  # = h / (rho_amb * c_p)
                 m_f = hm * cfg.rho_amb * (cfg.w_amb - wfs)  # (9.11)
                 m_rho = float(Deff_vec[-1] * rho_a_vec[-1] * gradw)  # (9.12)
                 m_del = m_f - m_rho  # (9.13)
@@ -381,6 +490,6 @@ class Frostmodell_Edge:
             m_dot_sf = self.m_dot_s_f(cfg, geom, st, gs, j)
             delta_s = (m_dot_sf / rho_fs) * cfg.dt
             st.s_e[j] += delta_s
-            st.s_e[j] = max(st.s_e[j], 1e-4)  # numerischer Mindestwert (stabilere dr)
+            st.s_e[j] = max(st.s_e[j], 1e-6)  # numerischer Mindestwert (stabilere dr)
 
         return it, res_T, res_w
