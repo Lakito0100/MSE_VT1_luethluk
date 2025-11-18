@@ -203,10 +203,14 @@ class Frostmodell_Edge:
                 #source = cfg.C * st.rho_a[i, j] * (st.w_e[i, j] - w_sat_i)
                 #d_rho = source * cfg.dt
                 #st.rho_e[i, j] = np.clip(st.rho_e[i, j] + d_rho, 1.0, cfg.rho_i)
-                if i == 0:
-                    st.rho_e[i, j] = 207.0 * np.exp(0.266 * st.T_e[i, j] - 0.0615 * cfg.T_w)
-                else:
-                    st.rho_e[i, j] = 207.0*np.exp(0.266*st.T_e[i,j] - 0.0615*st.T_e[i-1,j])
+
+                e_min = 0.1
+                e_max = 0.8
+
+                w_sat_ij = self.w_sat_coolprop(st.T_e[i,j],cfg.p_a)
+                S = st.w_e[i,j]/w_sat_ij
+                poros = e_min + (e_max-e_min)*np.exp(-S)
+                st.rho_e[i, j] = (1 - poros) * cfg.rho_i
 
         # s_e-Update
         for j in range(gs.ntheta):
