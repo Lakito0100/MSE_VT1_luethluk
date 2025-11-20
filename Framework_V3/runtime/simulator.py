@@ -8,10 +8,11 @@ class Simulator:
         self.rec = ResultRecorder(fields=fields)
 
 
-    def run(self, cfg, geom, gs, model, solver):
+    def run(self, cfg, geom, gs, model):
         st = SimState()
         init_fields(cfg, st, gs)
-        model = model.Frostmodell_Edge()
+        model_e = model.Frostmodell_Edge()
+        model_ft = model.Frostmodell_Finn_and_Tube
 
         t = 0.0
         it = 1
@@ -22,22 +23,19 @@ class Simulator:
             #cfg.v_a = dynamic_models.velocity(t)
             #print(f"Geschwindigkeit angepasst auf: {cfg.v_a:.2f}")
 
-            match solver:
-                case "1":
-                    iter, res_T, res_w = model.New_edge_state_seg(cfg, geom, st, gs)
-                case "2":
-                    iter, res_T, res_w = model.New_edge_state_seg_bereinigt(cfg, geom, st, gs)
-                case "3":
-                    iter, res_T, res_w = model.New_edge_state_seg_without_d_diffusion(cfg, geom, st, gs)
-                case "3":
-                    iter, res_T, res_w = model.New_edge_state_seg_diverg_form(cfg, geom, st, gs)
+            iter_e, res_T_e, res_w_e = model_e.New_edge_state_seg(cfg, geom, st, gs)
+            iter_ft, res_T_ft, res_w_ft = model_ft.New_finn_and_tube_state_seg(cfg, geom, st, gs)
 
             print("Time Step: " + str(it) +
                   "\t Time: " + f'{t:.1f}' +
                   " s | " + f'{t/60:.1f}' +
-                  " min \nEdge Domain Inner Iterations: " + str(iter) +
-                  " \t w: " + f'{res_w:.3e}' +
-                  " \t T: " + f'{res_T:.3e}')
+                  " min \nEdge Domain Inner Iterations: " + str(iter_e) +
+                  " \t w: " + f'{res_w_e:.3e}' +
+                  " \t T: " + f'{res_T_e:.3e}' +
+                  "\nFinn & Tube Domain Inner Iterations: " + str(iter_ft) +
+                  " \t w: " + f'{res_w_ft:.3e}' +
+                  " \t T: " + f'{res_T_ft:.3e}'
+                  )
 
             self.rec.push_from_state(st)
             t += cfg.dt
