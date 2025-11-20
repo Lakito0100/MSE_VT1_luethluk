@@ -65,6 +65,150 @@ class Frostmodell_Edge:
         R = 287.058
         return p_Pa / (R*Tf_K)
 
+    def New_edge_state_seg_at_90(self, cfg, geom, st, gs, tol=1e-6, niter=1000):
+        it = 0
+        res_T = res_w = np.inf
+        j = 89
+
+        # Arbeitskopien
+        T_f_old = np.asarray(st.T_e[:,j], dtype=float).copy()
+        w_f_old = np.asarray(st.w_e[:,j], dtype=float).copy()
+        T_f_new = np.empty_like(T_f_old)
+        w_f_new = np.empty_like(w_f_old)
+
+        while (it < niter) and ((res_T > tol) or (res_w > tol)):
+            # Radialgitter für den Winkel 90°
+            r_start = 0.5 * geom.fin_thickness
+            r_end = r_start + float(st.s_e[j])
+            r = np.linspace(r_start, r_end, gs.nr)
+            N = len(r)
+            dr = r[1] - r[0]
+
+            # lokale trockene Luftdichte im Frost
+            st.rho_a_e[:N, j] = self.rho_a_dry_local(T_f_old[:N], cfg.p_a)
+            rho_a = st.rho_a_e[:N, j]
+
+            # Randwerte an der Oberfläche
+            Tfs = T_f_old[-1]
+            wfs_sat = self.w_sat_coolprop(Tfs, cfg.p_a)
+
+            # konvektiver Massenübergang
+            rho_a_fs = rho_a[-1]
+            h = self.h_conv(cfg, geom, j)
+            hm = h / (rho_a_fs * cfg.c_p_a)
+            m_f = hm * rho_a_fs * (cfg.w_amb - wfs_sat)  # (9.11)
+
+            # diffusive Dampfmasse im Frost am Interface
+            De_s = self.D_eff(cfg, st, -1, j)
+            grad_w = (w_f_old[-1] - w_f_old[-2]) / dr  # dw/dr nach außen
+            m_rho = De_s * rho_a_fs * grad_w  # (9.12)
+
+            m_delta = m_f - m_rho  # (9.13)
+
+            # Wärmeströme an der Oberfläche
+            q_sens = h * (cfg.T_a - Tfs)  # (9.9)
+            q_tot = q_sens + cfg.h_sub * m_delta  # (9.16)
+
+            # Systemmatrizen für w und T
+            A_w = lil_matrix((N, N), dtype=float)
+            b_w = np.zeros(N)
+            A_T = lil_matrix((N, N), dtype=float)
+            b_T = np.zeros(N)
+
+            for i in range(N):
+                if i == 0:
+                    # Wand BC
+                    # w: Neumann dw/dr = 0  -> w1 - w0 = 0
+                    A_w[i, i] = -1.0
+                    A_w[i, i+1] = 1.0
+                    b_w[i] = 0.0
+
+                    # T: Dirichlet T = T_w
+                    A_T[i, i] = 1.0
+                    b_T[i] = cfg.T_e
+
+                elif i == N - 1:
+                    # Oberfläche w: Dirichlet w_fs = w_sat(T_fs)
+                    A_w[i, i] = 1.0
+                    b_w[i] = wfs_sat
+
+                    # Oberfläche T: k (T_fs - T_{N-1}) / dr = q_tot
+                    k_s = self.k_eff(st, -1, j)
+                    A_T[i, i] = k_s / dr
+                    A_T[i, i - 1] = -k_s / dr
+                    b_T[i] = q_tot
+
+                else:
+                    r_i = r[i]
+                    rho_ij = rho_a[i]
+
+                    # ---- Massen-Gleichung (w) ----
+                    Deff_ij = self.D_eff(cfg, st, i, j)
+                    Aprop = Deff_ij * rho_ij  # "D_eff * rho_a" am Knoten i
+
+                    alpha_w = Aprop * (1.0 / dr ** 2 + 1.0 / (2.0 * r_i * dr))
+                    beta_w = -2.0 * Aprop / dr ** 2 - cfg.C * rho_ij
+                    gamma_w = Aprop * (1.0 / dr ** 2 - 1.0 / (2.0 * r_i * dr))
+
+                    A_w[i, i + 1] = alpha_w
+                    A_w[i, i] = beta_w
+                    A_w[i, i - 1] = gamma_w
+
+                    w_sat_i = self.w_sat_coolprop(T_f_old[i], cfg.p_a)
+                    b_w[i] = -cfg.C * rho_ij * w_sat_i
+
+                    # ---- Energie-Gleichung (T) ----
+                    k_i = self.k_eff(st, i, j)
+
+                    alpha_T = k_i * (1.0 / dr ** 2 + 1.0 / (2.0 * r_i * dr))
+                    beta_T = -2.0 * k_i / dr ** 2
+                    gamma_T = k_i * (1.0 / dr ** 2 - 1.0 / (2.0 * r_i * dr))
+
+                    A_T[i, i + 1] = alpha_T
+                    A_T[i, i] = beta_T
+                    A_T[i, i - 1] = gamma_T
+
+                    b_T[i] = -cfg.isv * cfg.C * rho_ij * (w_f_old[i] - w_sat_i)
+
+            # lineare Systeme lösen
+            T_f_new[:] = spsolve(csr_matrix(A_T), b_T)
+            w_f_new[:] = spsolve(csr_matrix(A_w), b_w)
+
+            # Konvergenzkriterium
+            res_T = np.max(np.abs(T_f_new - T_f_old))
+            res_w = np.max(np.abs(w_f_new - w_f_old))
+
+            # Unterrelaxation aus Stabilitätsgründen
+
+            omega_T = 0.1
+            omega_w = 1.0
+
+            T_f_old[:] = (1 - omega_T) * T_f_old + omega_T * T_f_new
+            w_f_old[:] = (1 - omega_w) * w_f_old + omega_w * w_f_new
+
+            it += 1
+
+        # konvergierte Felder in den Zustand zurückschreiben
+        st.T_e[:,j] = T_f_new
+        st.w_e[:,j] = w_f_new
+
+        # rho_a updaten
+        st.rho_a_e[:gs.nr, j] = self.rho_a_dry_local(T_f_new[:gs.nr], cfg.p_a)
+
+        # --------- Explizites Update von rho_e und s_e ---------
+
+        # rho_e-Update
+        for i in range(gs.nr):
+            st.rho_e[i, j] = 207*np.exp(0.266*st.T_e[-1,j] - 0.0615*cfg.T_e)
+
+        # s_e-Update
+        rho_fs = st.rho_e[-1, j]
+        m_dot_sf = self.m_dot_s_f(cfg, geom, st, gs, j)
+        st.s_e[j] += (m_dot_sf / rho_fs) * cfg.dt
+        st.s_e[j] = max(st.s_e[j], 1e-6)
+
+        return it, res_T, res_w
+
     def New_edge_state_seg(self, cfg, geom, st, gs, tol=1e-6, niter=1000):
         it = 0
         res_T = res_w = np.inf

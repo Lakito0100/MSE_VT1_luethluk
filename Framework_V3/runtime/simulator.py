@@ -25,7 +25,7 @@ class Simulator:
             #print(f"Geschwindigkeit angepasst auf: {cfg.v_a:.2f}")
 
             t0_edge = time.perf_counter()
-            iter_e, res_T_e, res_w_e = model_e.New_edge_state_seg(cfg, geom, st, gs)
+            iter_e, res_T_e, res_w_e = model_e.New_edge_state_seg_at_90(cfg, geom, st, gs)
             t1_edge = time.perf_counter()
             edge_time = t1_edge - t0_edge
 
@@ -46,7 +46,7 @@ class Simulator:
                   " \t w: " + f'{res_w_ft:.3e}' +
                   " \t T: " + f'{res_T_ft:.3e}' +
                   " \t cycle time: " + f'{ft_time:.3f} s' +
-                  "\n-------------------------------------------------------------------------------"
+                  "\n--------------------------------------------------------------------------------------------------"
                   )
 
             self.rec.push_from_state(st)
