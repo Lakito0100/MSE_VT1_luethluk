@@ -17,7 +17,8 @@ class CaseConfig:
     isv: float          # J/kg latent heat of desublimation
 
     # refrigerant data
-    T_w: float          # °C wall temperature
+    T_e: float          # °C fin edge temperature
+    T_tube: float       # °C tube temperature
 
     # ice data
     rho_i: float        # kg/m^3 frost density (solid)
