@@ -12,7 +12,7 @@ class Simulator:
         st = SimState()
         init_fields(cfg, st, gs)
         model_e = model.Frostmodell_Edge()
-        model_ft = model.Frostmodell_Finn_and_Tube
+        model_ft = model.Frostmodell_Finn_and_Tube()
 
         t = 0.0
         it = 1
@@ -30,11 +30,13 @@ class Simulator:
                   "\t Time: " + f'{t:.1f}' +
                   " s | " + f'{t/60:.1f}' +
                   " min \nEdge Domain Inner Iterations: " + str(iter_e) +
-                  " \t w: " + f'{res_w_e:.3e}' +
+                  " \t \t \t w: " + f'{res_w_e:.3e}' +
                   " \t T: " + f'{res_T_e:.3e}' +
+
                   "\nFinn & Tube Domain Inner Iterations: " + str(iter_ft) +
                   " \t w: " + f'{res_w_ft:.3e}' +
-                  " \t T: " + f'{res_T_ft:.3e}'
+                  " \t T: " + f'{res_T_ft:.3e}' +
+                  "\n-------------------------------------------------------------------------------"
                   )
 
             self.rec.push_from_state(st)
