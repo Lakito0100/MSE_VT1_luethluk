@@ -2,6 +2,7 @@ from Framework_V3.runtime.state import SimState
 from Framework_V3.runtime.recorder import ResultRecorder
 from Framework_V3.runtime.initializer import init_fields
 import time
+from datetime import datetime
 from Framework_V3.runtime import dynamic_models
 
 class Simulator:
@@ -17,6 +18,7 @@ class Simulator:
 
         t = 0.0
         it = 1
+        t0_start = time.perf_counter()
 
         while t <= cfg.t_end:
             st.t = t
@@ -52,5 +54,13 @@ class Simulator:
             self.rec.push_from_state(st)
             t += cfg.dt
             it += 1
+
+        t1_end = time.perf_counter()
+        sim_time = t1_end - t0_start
+        end_wall = datetime.now()
+        print(
+            f"Simulation ended at {end_wall:%Y-%m-%d %H:%M:%S}\n"
+            f"Time to complete: {sim_time / 60:.1f} min"
+        )
 
         return self.rec
