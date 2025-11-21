@@ -1,6 +1,7 @@
 from Framework.runtime.state import SimState
 from Framework.runtime.recorder import ResultRecorder
 from Framework.runtime.initializer import init_fields
+import Framework.runtime.dynamic_models as dynamic_models
 import time
 from datetime import datetime
 
@@ -22,13 +23,14 @@ class Simulator:
 
         while t <= gs.t_end:
             gs.t = t
+            st.t = t
 
             print("Time Step: " + str(it) +
                   "\t Time: " + f'{t:.1f}' +
                   " s | " + f'{t / 60:.1f} min')
 
             #cfg.v_a = dynamic_models.velocity(t)
-            #print(f"Geschwindigkeit angepasst auf: {cfg.v_a:.2f}")
+            #print(f"Velocity adjusted to: {cfg.v_a:.2f} m/s")
 
             # Updating the edge state ----------------------------------------------------------------------------------
 

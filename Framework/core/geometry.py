@@ -7,6 +7,8 @@ class FlatPlate:
 
 @dataclass(frozen=True)
 class FinnTubedHX:
+    n_seg_l: float          # Anzahl Reihen in Flussrichtung der Luft
+    n_seg_r: float          # Anzahl Reihen in Flussrichtung des Kältemittelinlet
     n_fin: float
     l_fin: float
     h_fin: float

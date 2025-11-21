@@ -125,7 +125,7 @@ class Frostmodell_Edge:
 
                     # T: Dirichlet T = T_w
                     A_T[i, i] = 1.0
-                    b_T[i] = cfg.T_e
+                    b_T[i] = cfg.T_tube
 
                 elif i == N - 1:
                     # Oberfläche w: Dirichlet w_fs = w_sat(T_fs)
@@ -199,7 +199,7 @@ class Frostmodell_Edge:
 
         # rho_e-Update
         for i in range(gs.nr):
-            st.rho_e[i, j] = 207*np.exp(0.266*st.T_e[-1,j] - 0.0615*cfg.T_e)
+            st.rho_e[i, j] = 207*np.exp(0.266*st.T_e[-1,j] - 0.0615*cfg.T_tube)
 
         # s_e-Update
         rho_fs = st.rho_e[-1, j]
@@ -269,7 +269,7 @@ class Frostmodell_Edge:
 
                         # T: Dirichlet T = T_w
                         A_T[i, i] = 1.0
-                        b_T[i] = cfg.T_e
+                        b_T[i] = cfg.T_tube
 
                     elif i == N - 1:
                         # Oberfläche w: Dirichlet w_fs = w_sat(T_fs)
@@ -347,7 +347,7 @@ class Frostmodell_Edge:
         # rho_e-Update
         for j in range(ntheta):
             for i in range(N):
-                st.rho_e[i, j] = 207*np.exp(0.266*st.T_e[-1,j] - 0.0615*cfg.T_e)
+                st.rho_e[i, j] = 207*np.exp(0.266*st.T_e[-1,j] - 0.0615*cfg.T_tube)
 
         # s_e-Update
         for j in range(ntheta):
@@ -595,7 +595,7 @@ class Frostmodell_Finn_and_Tube:
 
         return q_tot_fs, m_delta
 
-    def segment_mass_flux(self, cfg, geom, st, gs):
+    def segment_mass_flux_air_frost(self, cfg, geom, st, gs):
         """
         Integrierter Massenstrom Wasserdampf -> Frost eines Segments.
 
@@ -610,7 +610,7 @@ class Frostmodell_Finn_and_Tube:
 
         return m_s_seg
 
-    def segment_heat_flux(self, cfg, geom, st, gs):
+    def segment_heat_flux_air_frost(self, cfg, geom, st, gs):
         """
         Integrierter Wärmestrom von der Luft in den Frost eines Segments.
 
