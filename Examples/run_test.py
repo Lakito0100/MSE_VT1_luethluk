@@ -1,8 +1,8 @@
-from Framework_V1.core.config import CaseConfig
-from Framework_V1.core.geometry import LammellenRohrWU
-from Framework_V1.models import frost_test
-from Framework_V1.runtime.simulator import Simulator
-from Framework_V1.visualisation import plot
+from Legacy.Framework_V1.core.config import CaseConfig
+from Legacy.Framework_V1.core.geometry import LammellenRohrWU
+from Legacy.Framework_V1.models import frost_test
+from Legacy.Framework_V1.runtime.simulator import Simulator
+from Legacy.Framework_V1.visualisation import plot
 
 cfg = CaseConfig(
     T_air= 10.0,        # °C
