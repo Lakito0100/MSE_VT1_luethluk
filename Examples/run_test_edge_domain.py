@@ -1,8 +1,8 @@
-from Framework_V2.core.config import CaseConfig, GridShape
-from Framework_V2.core.geometry import FinnTubedHX
-from Framework_V2.models import Frostmodell_V1
-from Framework_V2.runtime.simulator import Simulator
-from Framework_V2.visualisation import plot
+from Legacy.Framework_V2.core.config import CaseConfig, GridShape
+from Legacy.Framework_V2.core.geometry import FinnTubedHX
+from Legacy.Framework_V2.models import Frostmodell_V1
+from Legacy.Framework_V2.runtime.simulator import Simulator
+from Legacy.Framework_V2.visualisation import plot
 from CoolProp.HumidAirProp import HAPropsSI
 
 
