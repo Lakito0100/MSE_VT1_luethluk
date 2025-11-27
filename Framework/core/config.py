@@ -3,6 +3,7 @@ from dataclasses import dataclass
 @dataclass(frozen=False)
 class CaseConfig:
     # air data
+    m_dot: float        # kg/s air mass flow
     T_a: float          # °C temperature air
     v_a: float          # m/s velocity air
     p_a: float          # Pa pressure air

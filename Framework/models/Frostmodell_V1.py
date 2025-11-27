@@ -585,15 +585,33 @@ class Frostmodell_Finn_and_Tube:
         grad_w = (st.w_ft[-1] - st.w_ft[-2]) / dx
 
         # Massenflüsse (Luftseite + diffusive im Frost)
-        m_f = hm_eff * cfg.rho_amb * (cfg.w_amb - wfs_sat)  # [kg/(m² s)]
+        m_fs = hm_eff * cfg.rho_amb * (cfg.w_amb - wfs_sat)  # [kg/(m² s)]
         m_rho = Deff_s * rho_a_s * grad_w  # [kg/(m² s)]
-        m_delta = m_f - m_rho  # [kg/(m² s)]
+        m_delta = m_fs - m_rho  # [kg/(m² s)]
+
+        m_x0 = cfg.C * st.rho_ft[0]*(st.w_ft[0]-self.w_sat_coolprop(st.T_ft[0], cfg.p_a))*dx
 
         # Wärmeströme
         q_sens_fs = h_eff * (cfg.T_a - Tfs)  # [W/m²]
         q_tot_fs = q_sens_fs + cfg.h_sub * m_delta  # [W/m²]
+        q_tot_fs_2 = self.k_f(st, -1) * (Tfs - st.T_ft[-2]) / dx
+        check_q_fs = (q_tot_fs - q_tot_fs_2)/q_tot_fs
 
-        return q_tot_fs, m_delta
+        if abs(check_q_fs) > 1e-3:
+            print('\033[93mThe heat flow at the frost surface is not consistent.\033[00m')
+            print(f'\033[93mq_sens + q_lat = {q_tot_fs:.3e} W/m2\033[00m')
+            print(f'\033[93mk_eff * dT/dx|fs = {q_tot_fs_2:.3e} W/m2\033[00m')
+
+        q_tot_x0 = q_sens_fs + cfg.h_sub * m_x0
+        q_tot_x0_2 = self.k_f(st, 0) * (st.T_ft[1] - st.T_ft[0])/dx
+        check_q_x0 = (q_tot_x0 - q_tot_x0_2)/q_tot_x0
+
+        if abs(check_q_x0) > 1e-3:
+            print('\033[93mThe heat flow at the surface of fins and tubes is not consistent.\033[00m')
+            print(f'\033[93mq_sens + q_lat = {q_tot_x0:.3e} W/m2\033[00m')
+            print(f'\033[93mk_eff * dT/dx|x=0 = {q_tot_x0_2:.3e} W/m2\033[00m')
+
+        return q_tot_fs_2, q_tot_x0_2, m_delta
 
     def segment_mass_flux_air_frost(self, cfg, geom, st, gs):
         """
@@ -602,9 +620,8 @@ class Frostmodell_Finn_and_Tube:
         Rückgabe:
             m_s_seg [kg/s]
         """
-        q_tot_fs, m_delta = self._segment_surface_fluxes(cfg, geom, st, gs)
+        q_tot_fs, q_tot_x0, m_delta = self._segment_surface_fluxes(cfg, geom, st, gs)
 
-        # Segmentfläche: gleiche Fläche wie in h_eff verwendet
         A_seg = geom.A_one_segment()
         m_s_seg = m_delta * A_seg  # [kg/s]
 
@@ -615,11 +632,13 @@ class Frostmodell_Finn_and_Tube:
         Integrierter Wärmestrom von der Luft in den Frost eines Segments.
 
         Rückgabe:
-            Q_seg [W]
+            Q_seg_fs [W]
+            Q_seg_x0 [W]
         """
-        q_tot_fs, m_delta = self._segment_surface_fluxes(cfg, geom, st, gs)
+        q_tot_fs, q_tot_x0, m_delta = self._segment_surface_fluxes(cfg, geom, st, gs)
 
         A_seg = geom.A_one_segment()
-        Q_seg = q_tot_fs * A_seg  # [W]
+        Q_seg_fs = q_tot_fs * A_seg  # [W]
+        Q_seg_x0 = q_tot_x0 * A_seg  # [W]
 
-        return Q_seg
+        return Q_seg_fs, Q_seg_x0
