@@ -3,6 +3,75 @@ from matplotlib.patches import Rectangle
 import pandas as pd
 import numpy as np
 
+def extract_segment_timeseries_from_snapshots(grid_snapshots, field, ix, iy):
+    """
+    Holt aus einer Liste von Grid-Snapshots (ResultRecorder.grid_snapshots)
+    die Zeitreihe eines Feldes für ein bestimmtes Segment [ix, iy].
+
+    Parameter
+    ---------
+    grid_snapshots : list[dict]
+        Liste von Snapshots, wie sie der Simulator in ResultRecorder.grid_snapshots ablegt.
+        Jeder Eintrag hat mindestens Keys "t" und "st_grid".
+    field : str
+        Name des Attributs im SimState (z.B. "s_e", "s_ft", "T_ft", ...)
+    ix, iy : int
+        Segment-Koordinaten (x-Richtung: Luftfluss, y-Richtung: Reihen).
+
+    Rückgabe
+    --------
+    t : np.ndarray, shape (nt,)
+        Zeitvektor
+    y : np.ndarray
+        Zeitreihe des gewünschten Feldes, z.B.:
+        - (nt,)          für Skalare
+        - (nt, ntheta)   für s_e
+        - (nt, nr, ntheta) für T_e usw.
+    """
+    t_list = []
+    y_list = []
+
+    for snap in grid_snapshots:
+        # Zeit aus Snapshot
+        t_list.append(snap["t"])
+
+        # SimState dieses Segments
+        st_ij = snap["st_grid"][ix][iy]
+
+        # Feld aus dem SimState holen
+        try:
+            val = getattr(st_ij, field)
+        except AttributeError as e:
+            raise AttributeError(
+                f"SimState hat kein Attribut '{field}'. "
+                f"Verfügbare: {list(vars(st_ij).keys())}"
+            ) from e
+
+        # in Array wandeln (damit Shapes vergleichbar sind)
+        y_list.append(np.asarray(val))
+
+    t = np.array(t_list)
+
+    # Versuche, entlang der Zeitachse zu stacken
+    try:
+        y = np.stack(y_list, axis=0)
+    except ValueError:
+        # Fallback, falls die Shapes zwischenzeitlich variieren
+        # (z.B. wachsender Frost mit anderem Grid)
+        # Dann lieber als Objekt-Array zurückgeben
+        y = np.array(y_list, dtype=object)
+
+    return t, y
+
+
+def extract_segment_scalar_from_snapshots(grid_snapshots, field, ix, iy):
+    """
+    Wie oben, aber für reine Skalarwerte (z.B. s_ft wenn 0D) – Komfortfunktion.
+    """
+    t, y = extract_segment_timeseries_from_snapshots(grid_snapshots, field, ix, iy)
+    # falls y shape (nt, 1) oder so hat, flachziehen:
+    return t, np.asarray(y).reshape(len(t))
+
 def plot_any(
     kind,
     x,
@@ -333,3 +402,108 @@ def plot_frost_polar_slice(
     if owns_fig:
         plt.show()
     return fig, ax
+
+def extract_segment_field_grid(
+    grid_snapshots,
+    field: str,
+    *,
+    source: str = "st",
+    t_idx: int | None = None,
+    at_time: float | None = None
+):
+    if not grid_snapshots:
+        raise ValueError("grid_snapshots ist leer.")
+
+    # Zeitindex bestimmen
+    if t_idx is None:
+        if at_time is None:
+            t_idx = 0
+        else:
+            times = np.array([snap["t"] for snap in grid_snapshots], dtype=float)
+            t_idx = int(np.abs(times - at_time).argmin())
+    else:
+        # Python-Style negative Indizes erlauben
+        if t_idx < 0:
+            t_idx = len(grid_snapshots) + t_idx
+
+    if t_idx < 0 or t_idx >= len(grid_snapshots):
+        raise IndexError(f"t_idx {t_idx} außerhalb des gültigen Bereichs [0, {len(grid_snapshots)-1}]")
+
+    snap = grid_snapshots[t_idx]
+    t_sel = float(snap["t"])
+
+    if source == "st":
+        grid = snap["st_grid"]
+    elif source == "cfg":
+        grid = snap["cfg_grid"]
+    else:
+        raise ValueError("source muss 'st' oder 'cfg' sein.")
+
+    n_x = len(grid)
+    n_y = len(grid[0])
+
+    Z = np.zeros((n_x, n_y), dtype=float)
+
+    for ix in range(n_x):
+        for iy in range(n_y):
+            obj = grid[ix][iy]
+            val = getattr(obj, field)
+            Z[ix, iy] = float(val)
+
+    return t_sel, Z
+
+def plot_segment_field_grid(
+    grid_snapshots,
+    field: str,
+    *,
+    source: str = "st",
+    t_idx: int | None = None,
+    at_time: float | None = None,
+    title: str | None = None,
+    cmap: str = "viridis",
+    show: bool = True,
+    colorbar: bool = True
+):
+    """
+    Plottet ein Feld über alle Segmente als 2D-Map (ix vs. iy).
+
+    ix: Segmente in Luftflussrichtung (0..n_seg_l-1)
+    iy: Segmente in Kältemittel-Richtung (0..n_seg_r-1)
+    """
+    t_sel, Z = extract_segment_field_grid(
+        grid_snapshots,
+        field,
+        source=source,
+        t_idx=t_idx,
+        at_time=at_time,
+    )
+
+    n_x, n_y = Z.shape
+    fig, ax = plt.subplots()
+
+    im = ax.imshow(
+        Z.T,                # transpose, damit x horizontal, y vertikal
+        origin="lower",
+        aspect="auto",
+        cmap=cmap
+    )
+
+    ax.set_xlabel("ix (Luftflussrichtung)")
+    ax.set_ylabel("iy (Reihen)")
+
+    if title is None:
+        ax.set_title(f"{field} bei t = {t_sel:.1f} s")
+    else:
+        ax.set_title(title + f" (t = {t_sel:.1f} s)")
+
+    ax.set_xticks(np.arange(n_x))
+    ax.set_yticks(np.arange(n_y))
+
+    if colorbar:
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.set_label(field)
+
+    if show:
+        plt.show()
+
+    return fig, ax, Z

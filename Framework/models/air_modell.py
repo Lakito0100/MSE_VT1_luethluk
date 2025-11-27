@@ -6,10 +6,10 @@ class Air:
     def __init__(self):
         self.ft_model = Frostmodell_Finn_and_Tube()
 
-    def propagate_inplace(cls,
+    def propagate_inplace(self,
                           cfg_in,
                           cfg_out,
-                          st_bevor,
+                          s_frost_bevor,
                           st_seg,
                           geom,
                           m_dot_a: float,
@@ -33,7 +33,7 @@ class Air:
         w_in = cfg_in.w_amb
         p_in = cfg_in.p_a
         v_in = cfg_in.v_a
-        rho_in = cfg_in.rho_a
+        rho_in = cfg_in.rho_amb
 
         # Energie- und Stoffbilanz
         dT = -Q_seg / (m_dot_a * cfg_in.c_p_a)
@@ -43,11 +43,15 @@ class Air:
         w_out = w_in + dw
         p_out = p_in - dp_seg
 
-        RH_out = HAPropsSI("R", "T", T_out+273.15, "P", p_out, "W", w_out)
+        try:
+            RH_out = HAPropsSI("R", "T", T_out+273.15, "P", p_out, "W", w_out)
+        except:
+            RH_out = cfg_in.RH
+            print(f'\033[93mCoolprop raised an exception when calculating RH_out, overwriting with RH_out = {RH_out:.3f}.\033[00m')
         rho_out = 1.0 / HAPropsSI("Vha", "T", T_out+273.15, "P", p_out, "W", w_out)
 
         # Update Geschwindigkeit
-        A_in = geom.h_fin * (geom.fin_pitch-2*st_bevor.s_ft)
+        A_in = geom.h_fin * (geom.fin_pitch-2*s_frost_bevor)
         A_out = geom.h_fin * (geom.fin_pitch - 2 * st_seg.s_ft)
         mass_flow = A_in * v_in * rho_in
         v_out = mass_flow / (A_out * rho_out)

@@ -1,10 +1,9 @@
 from dataclasses import dataclass
-import numpy as np
-from CoolProp.HumidAirProp import HAPropsSI
 
 @dataclass(frozen=False)
 class CaseConfig:
     # air data
+    m_dot: float        # kg/s air mass flow
     T_a: float          # °C temperature air
     v_a: float          # m/s velocity air
     p_a: float          # Pa pressure air
@@ -19,8 +18,12 @@ class CaseConfig:
     isv: float          # J/kg latent heat of desublimation
 
     # refrigerant data
-    T_e: float          # °C fin edge temperature
     T_tube: float       # °C tube temperature
+    T_ref: float        # °C refrigerant temperature
+    p_ref: float        # Pa Refrigerant Pressure
+    h_ref: float        # J/kg specific Enthalpie
+    V_dot_ref: float    # m^3/s Volumeflow Refrigerant
+    x_ref: float        # [-]
 
     # ice data
     rho_i: float        # kg/m^3 frost density (solid)
