@@ -126,18 +126,23 @@ class Simulator:
                           T_out_air_mean=T_outlet_air_mean,
                           T_out_ref=T_outlet_ref)
 
-            self.rec.push_grid_snapshot(
-                t=t,
-                cfg_grid=cfg_grid,
-                st_grid=st_grid,
-                meta={"it": it}
-            )
+            # Push grid snapshot
+            if it % gs.store_grid_every_x_it == 0 or t >= gs.t_end:
+                print('Pushing grid state')
+                self.rec.push_grid_snapshot(
+                    t=t,
+                    cfg_grid=cfg_grid,
+                    st_grid=st_grid,
+                    meta={"it": it}
+                )
 
             it += 1
             t += gs.dt
             print(
                 "--------------------------------------------------------------------------------------------------"
                   )
+
+
 
         t1_end = time.perf_counter()
         sim_time = t1_end - t0_start
