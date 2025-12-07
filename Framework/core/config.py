@@ -18,6 +18,7 @@ class CaseConfig:
     isv: float          # J/kg latent heat of desublimation
 
     # refrigerant data
+    ref_str: str        # Name of refrigerant
     T_tube: float       # °C tube temperature
     T_ref: float        # °C refrigerant temperature
     p_ref: float        # Pa Refrigerant Pressure
@@ -34,6 +35,8 @@ class GridShape:
     # numerics
     t_end: float        # s endtime
     dt: float           # s time step
+    dt_refrigerant: float # s refrigerant time step
+    store_grid_every_x_it: int = 10 # store every x iterations
 
     nx: int = 100
     nr: int = 100
