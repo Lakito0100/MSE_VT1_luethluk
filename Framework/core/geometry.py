@@ -17,6 +17,9 @@ class FinnTubedHX:
     d_tube_a: float
     tube_thickness: float
     lambda_fin: float
+    rho_solid: float
+    c_solid: float
+    h_int: float
 
     def l_tube(self):
         return self.n_fin*(self.fin_pitch + self.fin_thickness)

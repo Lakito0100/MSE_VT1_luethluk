@@ -2,7 +2,7 @@ from Framework.runtime.state import SimState
 from Framework.runtime.recorder import ResultRecorder
 from Framework.runtime.initializer import init_fields
 from Framework.models.air_modell import Air
-from Framework.models.refrigerant_modell import Refrigerant
+from Framework.models.refrigerant_modell import RefGeomParams, Refrigerant
 import Framework.runtime.dynamic_models as dynamic_models
 
 import time
@@ -12,10 +12,27 @@ import numpy as np
 
 
 class Simulator:
-    def __init__(self, fields=("t")):
+    def __init__(self, geom, fields=("t")):
         self.rec = ResultRecorder(fields=fields, stream_path="sim_grid_log.jsonl")
+
+        A_flow = (((geom.d_tube_a/2)-geom.tube_thickness)**2) * np.pi
+        L = geom.l_tube()
+        A_inner = (geom.d_tube_a-2*geom.tube_thickness)*np.pi*L
+        V_wall = (((geom.d_tube_a/2)**2) - A_flow)*L
+
+        gp = RefGeomParams(
+            A_flow  = A_flow,          # cross-section of one tube
+            dx      = L,     # length per segment
+            A_inner = A_inner,    # inner area per segment
+            V_wall  = V_wall,     # wall volume per segment
+            rho_wall= geom.rho_solid,
+            c_wall  = geom.c_solid,
+            h_int   = geom.h_int,      # or some HTC model / correlation
+            dp_ref_seg = 0.0  # or just 0.0 for now
+        )
+
         self.air = Air()
-        self.refrigerant = Refrigerant()
+        self.refrigerant = Refrigerant(gp)
 
 
     def run(self, cfg, geom, gs, model):
@@ -106,7 +123,15 @@ class Simulator:
 
             print('Updating the refrigerant state for all segments...')
 
-            self.refrigerant.update_all_segments(input_cfg, cfg_grid,st_grid, Q_seg_x0_list,'R134a')
+            self.refrigerant.update_all_segments(
+                input_cfg,  # inlet BC
+                cfg_grid,
+                st_grid,
+                Q_seg_x0_list,  # this is Q_f per segment
+                t_outer=t,
+                dt_outer=gs.dt,
+                dt_inner=gs.dt_refrigerant
+            )
 
             print('Done')
 
