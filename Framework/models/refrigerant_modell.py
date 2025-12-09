@@ -37,177 +37,9 @@ class Refrigerant:
     # Lokale Korrelation für h_int (Wärmeübergang Wand ↔ Kältemittel)
     # Aktuell nur Platzhalter: konstanter Wert 10 W/m²K
     # ------------------------------------------------------------------
-    def _h_int_corr(self,
-                    p_i: float,
-                    h_i: float,
-                    m_dot_ref: float,
-                    Q_seg_i: float,
-                    geom,
-                    fluid: str,
-                    orientation: str = "horizontal") -> float:
-        """
-        Interner Wärmeübergangskoeffizient h_int zwischen Rohrinnenwand und Kältemittel.
-
-        - bestimmt zuerst die Phase (flüssig / zweiphasig / gasförmig) über CoolProp
-        - zweiphasig: Shah (2022) – neue Korrelation für gesättigtes Sieden in Mini-/Makrokanälen
-        - einphasig: Dittus-Boelter (turbulent) bzw. Nu=3.66 (laminar)
-
-        Parameter
-        ---------
-        p_i        : Druck im Segment [Pa]
-        h_i        : Enthalpie im Segment [J/kg]
-        m_dot_ref  : Massenstrom durch das Rohr [kg/s]
-        Q_seg_i    : Wärmestrom in das Kältemittel in diesem Segment [W] (vom Frostmodell)
-        geom       : FinnTubedHX-Objekt (benutzt: d_tube_a, tube_thickness, n_seg_l, l_fin)
-        fluid      : CoolProp-Fluidstring, z.B. "R134a"
-        orientation: "horizontal" oder "vertical" (für Froude‐/Oberflächenspannungs-Faktor)
-
-        Rückgabe
-        --------
-        h_int [W/m²K]
-        """
-
-        # ---------------- Geometrie / Wärmestrom -> q'' ---------------------------------------------------------------
-        d_o = geom.d_tube_a                          # Außendurchmesser
-        t_w = geom.tube_thickness
-        d_i = d_o - 2.0 * t_w                        # Innendurchmesser
-        if d_i <= 0:
-            raise ValueError("Innendurchmesser <= 0 – prüfe d_tube_a und tube_thickness")
-
-        # Strömungsquerschnitt und Massenfluss
-        A_flow = 0.25 * np.pi * d_i**2               # m²
-        G = m_dot_ref / A_flow                       # kg/(m² s)
-
-        # Segmentlänge in Strömungsrichtung (angenommen: l_fin / n_seg_l)
-        L_tot = geom.l_fin
-        L_seg = L_tot / geom.n_seg_l
-        A_i_seg = np.pi * d_i * L_seg                # innere Oberfläche des Segments
-
-        # Wärmestromdichte (Vorzeichen: Betrag für Boiling Number)
-        if A_i_seg <= 0:
-            raise ValueError("A_i_seg <= 0 – prüfe Geometrie")
-        q_flux = Q_seg_i / A_i_seg                   # W/m²
-        q_flux_abs = abs(q_flux)
-
-        # ---------------- Phase aus CoolProp bestimmen ---------------------------------------------------------------
-        try:
-            x = PropsSI("Q", "P", p_i, "H", h_i, fluid)   # Dampfqualität
-        except ValueError:
-            x = float("nan")
-
-        # Zweiphasig: 0 < x < 1 -> Shah 2022
-        if np.isfinite(x) and 0.0 < x < 1.0:
-            return self._h_shah_2022_boiling(
-                p=p_i,
-                G=G,
-                x=x,
-                q_flux=q_flux_abs,
-                D_i=d_i,
-                fluid=fluid,
-                orientation=orientation,
-            )
-
-        # Einphasig: Dittus-Boelter
-        # (funktioniert sowohl für Flüssigkeit als auch für Dampf – nur die Stoffwerte ändern sich)
-        T = PropsSI("T", "P", p_i, "H", h_i, fluid)
-        mu = PropsSI("V", "P", p_i, "H", h_i, fluid)        # Viskosität [Pa·s]
-        k = PropsSI("L", "P", p_i, "H", h_i, fluid)         # Wärmeleitfähigkeit [W/mK]
-        Pr = PropsSI("PRANDTL", "P", p_i, "H", h_i, fluid)  # Prandtl-Zahl [-]
-
-        Re = G * d_i / mu
-
-        if Re < 2300.0:
-            # laminarer Rohrfluss – konstanter Wärmestrom
-            Nu = 3.66
-        else:
-            # Dittus-Boelter, beheiztes Fluid
-            Nu = 0.023 * Re**0.8 * Pr**0.4
-
-        h_int = Nu * k / d_i
-        return h_int
-
-    # ------------------------------------------------------------------------------------------------------------------
-    # Shah (2022) – Korrelation für gesättigtes Sieden in Mini-/Makrokanälen
-    # ------------------------------------------------------------------------------------------------------------------
-    def _h_shah_2022_boiling(self,
-                             p: float,
-                             G: float,
-                             x: float,
-                             q_flux: float,
-                             D_i: float,
-                             fluid: str,
-                             orientation: str = "horizontal") -> float:
-        """
-        Shah (2022) – neue allgemeine Korrelation für gesättigtes Sieden in Mini-/Makrokanälen. :contentReference[oaicite:1]{index=1}
-
-        Parameter wie im Paper:
-        h_TP = F_st * ψ * h_LS
-        mit ψ = max(ψ0, ψ_cb, ψ_bs)
-        """
-
-        g = 9.81
-        D_HYD = D_i      # glattes Rundrohr: hydraulischer & beheizter Durchmesser gleich
-        D_HP = D_i
-
-        # Sättigungseigenschaften
-        rho_L = PropsSI("D", "P", p, "Q", 0, fluid)
-        rho_G = PropsSI("D", "P", p, "Q", 1, fluid)
-        mu_L = PropsSI("V", "P", p, "Q", 0, fluid)
-        k_L = PropsSI("L", "P", p, "Q", 0, fluid)
-        Pr_L = PropsSI("PRANDTL", "P", p, "Q", 0, fluid)
-        sigma = PropsSI("I", "P", p, "Q", 0, fluid)        # Oberflächenspannung :contentReference[oaicite:2]{index=2}
-
-        h_L = PropsSI("H", "P", p, "Q", 0, fluid)
-        h_G = PropsSI("H", "P", p, "Q", 1, fluid)
-        h_LG = h_G - h_L                                   # Verdampfungsenthalpie
-
-        # Qualität ein bisschen clampen, um Division durch 0 zu vermeiden
-        x_clamp = float(np.clip(x, 1e-4, 0.9999))
-
-        # dimensionslose Kennzahlen (Definitionen im Paper/Nomenklatur) :contentReference[oaicite:3]{index=3}
-        Bo = q_flux / (G * h_LG)                           # Boiling number
-        Co = ((1.0 / x_clamp) - 1.0)**0.8 * (rho_G / rho_L)**0.5
-        We_GT = G**2 * D_HYD / (rho_G * sigma)
-        Fr_LT = G**2 / (rho_L**2 * g * D_HYD)
-
-        # Einphasen-HTC der Flüssigkeit (h_LS, Eq. (9)) :contentReference[oaicite:4]{index=4}
-        Re_LS = G * (1.0 - x_clamp) * D_HP / mu_L
-        h_LS = 0.023 * Re_LS**0.8 * Pr_L**0.4 * (k_L / D_HP)
-
-        # Parameter J (Eq. (5)) – mit abgeschnittener Klammer, damit J > 0 bleibt
-        if orientation.lower().startswith("h"):
-            if Fr_LT < 0.04:
-                n = 1.0
-            else:
-                n = 0.0
-        else:
-            n = 0.0
-
-        base = max(0.38 * Fr_LT - 0.3, 1e-6)
-        J = (base**n) * Co
-
-        # ψ0 nach neuer Korrelation (Eq. (21)/(22)) :contentReference[oaicite:5]{index=5}
-        if fluid.upper() in ("CO2", "R744"):
-            psi0 = 1820.0 * Bo**0.68
-        else:
-            psi0 = 1.0 + 560.0 * Bo**0.65
-
-        # ψ_cb und ψ_bs (Eq. (23),(24)) :contentReference[oaicite:6]{index=6}
-        psi_cb = 2.0 / (J**0.8)
-        psi_bs = psi0 * (1.0 + 0.16 / (J**0.87))
-
-        psi = max(psi0, psi_cb, psi_bs)
-
-        # Oberflächenspannungs-Faktor F_st (Eq. (12) + Anpassung für Fr_LT<0.04)
-        if orientation.lower().startswith("h") and Fr_LT < 0.04:
-            F_st = 1.0
-        else:
-            F_st = 2.1 - 0.008 * We_GT - 110.0 * Bo
-            if F_st < 1.0:
-                F_st = 1.0
-
-        h_TP = F_st * psi * h_LS
-        return h_TP
+    def h_int_corr(self,
+                    x:float):
+        return 50.0
 
 
     def update_all_segments(self,
@@ -269,24 +101,18 @@ class Refrigerant:
 
             for k, (ix, iy) in enumerate(path):
 
+                cfg = cfg_grid[ix][iy]
                 p_i = p[k]
                 h_i = h[k]
 
                 # --- Thermodynamische Größen -----------------------
                 rho_i = PropsSI("D", "P", p_i, "H", h_i, fluid)
 
-                # ∂ρ/∂p|h  und  ∂ρ/∂h|p
-                try:
-                    drho_dp = PropsSI("d(Dmass)/d(P)|H",
+                drho_dp = PropsSI("d(Dmass)/d(P)|H",
                                       "P", p_i, "H", h_i, fluid)
-                except ValueError:
-                    drho_dp = 0.0
 
-                try:
-                    drho_dh = PropsSI("d(Dmass)/d(Hmass)|P",
+                drho_dh = PropsSI("d(Dmass)/d(Hmass)|P",
                                       "P", p_i, "H", h_i, fluid)
-                except ValueError:
-                    drho_dh = 0.0
 
                 # Y(h,p) und Z(h,p)
                 Y_i = h_i * drho_dh + rho_i
@@ -301,17 +127,12 @@ class Refrigerant:
                 # --- Wärmetransfer Wand → Kältemittel --------------
                 T_ref_K = PropsSI("T", "P", p_i, "H", h_i, fluid)
 
-                h_int_i = self._h_int_corr(
-                    p_i=p_i,
-                    h_i=h_i,
-                    m_dot_ref=m_dot_ref,
-                    Q_seg_i=Q_seg_list[ix, iy],
-                    geom=geom,
-                    fluid=fluid
+                h_int_i = self.h_int_corr(
+                    x=cfg.x_ref
                 )
 
                 Q_ref_i = h_int_i * gp.A_inner * (Tw[k] - T_ref_K)  # [W]
-                qdot_i = Q_ref_i / (gp.A_flow * gp.dx)               # [W/m³]
+                qdot_i = Q_ref_i / (gp.A_inner * gp.dx)               # [W/m³]
 
                 # RHS der Energiegleichung (2):
                 rhs_energy = (

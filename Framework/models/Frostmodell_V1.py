@@ -458,14 +458,14 @@ class Frostmodell_Finn_and_Tube:
 
             for i in range(N):
                 if i == 0:
-                    # x = 0: kalte Wand/Tube -> Dirichlet T = T_w
+                    # x = 0: kalte Wand/Tube -> Dirichlet T = T_s_fs
                     # w: Neumann dw/dx = 0 -> w1 - w0 = 0
                     A_w[i, i] = -1.0
                     A_w[i, i+1] = 1.0
                     b_w[i] = 0.0
 
                     A_T[i, i] = 1.0
-                    b_T[i] = cfg.T_tube
+                    b_T[i] = T_s_fs
 
                 elif i == N - 1:
                     # x = δ_f: Frostoberfläche zur Luft
@@ -579,13 +579,12 @@ class Frostmodell_Finn_and_Tube:
         wfs = float(st.w_ft[-1])
 
         # Sättigungszustand + Gradienten im Frost
-        wfs_sat = self.w_sat_coolprop(Tfs, cfg.p_a)
         rho_a_s = self.rho_a_dry_local(Tfs, cfg.p_a)
         Deff_s = self.D_eff(cfg, st, N - 1)
         grad_w = (st.w_ft[-1] - st.w_ft[-2]) / dx
 
         # Massenflüsse (Luftseite + diffusive im Frost)
-        m_fs = hm_eff * cfg.rho_amb * (cfg.w_amb - wfs_sat)  # [kg/(m² s)]
+        m_fs = hm_eff * rho_a_s * (cfg.w_amb - wfs)  # [kg/(m² s)]
         m_rho = Deff_s * rho_a_s * grad_w  # [kg/(m² s)]
         m_delta = m_fs - m_rho  # [kg/(m² s)]
 
