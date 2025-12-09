@@ -39,6 +39,8 @@ class Air:
         dT = -Q_seg / (m_dot_a * cfg_in.c_p_a)
         dw = -m_s_seg / m_dot_a
 
+
+
         T_out = T_in + dT
         w_out = w_in + dw
         p_out = p_in - dp_seg

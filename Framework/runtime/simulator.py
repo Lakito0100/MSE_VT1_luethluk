@@ -27,12 +27,11 @@ class Simulator:
             V_wall  = V_wall,     # wall volume per segment
             rho_wall= geom.rho_solid,
             c_wall  = geom.c_solid,
-            h_int   = geom.h_int,      # or some HTC model / correlation
             dp_ref_seg = 0.0  # or just 0.0 for now
         )
 
         self.air = Air()
-        self.refrigerant = Refrigerant(gp)
+        self.refrigerant = Refrigerant(gp,connection_path=geom.CP)
 
 
     def run(self, cfg, geom, gs, model):
@@ -109,13 +108,17 @@ class Simulator:
                     m_dot_a = input_cfg.m_dot / n_y
 
                     if ix == 0:
-                        T_out, w_out, p_out = self.air.propagate_inplace(input_cfg,cfg_grid[ix][iy],st.s_e[89],st,geom,
+                        T_out, w_out, p_out = self.air.propagate_inplace(input_cfg,cfg,st.s_e[89],st,geom,
                                                                     m_dot_a,Q_seg_fs,m_s_seg)
                     else:
-                        T_out, w_out, p_out = self.air.propagate_inplace(cfg_grid[ix-1][iy], cfg_grid[ix][iy],st.s_ft,st,geom,
+                        T_out, w_out, p_out = self.air.propagate_inplace(cfg_grid[ix-1][iy], cfg,st.s_ft,st,geom,
                                                                     m_dot_a, Q_seg_fs, m_s_seg)
 
-                    print('Done')
+                    print("Air Domain Results: " +
+                          " \t new T: " + f'{T_out:.2f} °C' +
+                          " \t new w: " + f'{w_out:.3e} kg/kg' +
+                          " \t new P: " + f'{p_out:.3e} Pa'
+                          )
 
                     Q_seg_x0_list[ix,iy] = Q_seg_x0
 
@@ -127,13 +130,11 @@ class Simulator:
                 input_cfg,  # inlet BC
                 cfg_grid,
                 st_grid,
+                geom,
                 Q_seg_x0_list,  # this is Q_f per segment
-                t_outer=t,
-                dt_outer=gs.dt,
-                dt_inner=gs.dt_refrigerant
+                time=t,
+                dt=gs.dt,
             )
-
-            print('Done')
 
         # Pushing the data ---------------------------------------------------------------------------------------------
 

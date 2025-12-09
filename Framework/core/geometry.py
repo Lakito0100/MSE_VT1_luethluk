@@ -19,10 +19,10 @@ class FinnTubedHX:
     lambda_fin: float
     rho_solid: float
     c_solid: float
-    h_int: float
+    CP: list                 # Definition of the connection path
 
     def l_tube(self):
-        return self.n_fin*(self.fin_pitch + self.fin_thickness)
+        return self.fin_pitch + self.fin_thickness
 
     def A_tube_one_segment(self):
         return self.d_tube_a * math.pi * self.fin_pitch
