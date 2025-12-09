@@ -27,7 +27,6 @@ class Simulator:
             V_wall  = V_wall,     # wall volume per segment
             rho_wall= geom.rho_solid,
             c_wall  = geom.c_solid,
-            h_int   = geom.h_int,      # or some HTC model / correlation
             dp_ref_seg = 0.0  # or just 0.0 for now
         )
 
@@ -127,10 +126,10 @@ class Simulator:
                 input_cfg,  # inlet BC
                 cfg_grid,
                 st_grid,
+                geom,
                 Q_seg_x0_list,  # this is Q_f per segment
-                t_outer=t,
-                dt_outer=gs.dt,
-                dt_inner=gs.dt_refrigerant
+                time=t,
+                dt=gs.dt,
             )
 
             print('Done')
