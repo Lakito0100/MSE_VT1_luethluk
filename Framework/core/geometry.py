@@ -1,5 +1,6 @@
 import math
 from dataclasses import dataclass
+from typing import List, Tuple
 
 @dataclass(frozen=True)
 class FlatPlate:
@@ -19,7 +20,7 @@ class FinnTubedHX:
     lambda_fin: float
     rho_solid: float
     c_solid: float
-    CP: list                 # Definition of the connection path
+    CP: str                 # Definition of the connection path
 
     def l_tube(self):
         return self.fin_pitch + self.fin_thickness
@@ -49,3 +50,64 @@ class FinnTubedHX:
     def mue_fin(self, alpha_f: float):
         x = self.x_rippe(alpha_f)
         return math.tanh(x)/x
+
+    def build_connection_path(self, variant: str = "row_serpentine") -> List[Tuple[int, int]]:
+        """
+        Erzeugt einen Connection Path (CP) über das Segment-Grid auf Basis von
+        n_seg_l × n_seg_r.
+
+        Indizes:
+            (i_l, i_r) mit
+            i_l in [0, n_seg_l - 1]   - Richtung Luftströmung
+            i_r in [0, n_seg_r - 1]   - Richtung Kältemittelinlet
+
+        Varianten
+        ---------
+        variant = "row_serpentine":
+            Schlange zeilenweise, Start unten rechts.
+            Für 5×5 ergibt das z.B.:
+            (4,4),(4,3),(4,2),(4,1),(4,0),
+            (3,0),(3,1),(3,2),(3,3),(3,4), ...
+
+        variant = "col_serpentine":
+            Schlange spaltenweise, Start unten rechts.
+        """
+        n_l = int(self.n_seg_l)
+        n_r = int(self.n_seg_r)
+
+        if n_l <= 0 or n_r <= 0:
+            raise ValueError(f"n_seg_l und n_seg_r müssen > 0 sein (n_seg_l={n_l}, n_seg_r={n_r}).")
+
+        variant = variant.lower()
+        path: List[Tuple[int, int]] = []
+
+        if variant in ("row_serpentine", "rows", "snake_rows"):
+            # Start unten rechts, zeilenweise Schlange nach oben
+            # Reproduziert genau dein 5x5-Beispiel.
+            for row_idx_from_bottom, i_l in enumerate(range(n_l - 1, -1, -1)):
+                if row_idx_from_bottom % 2 == 0:
+                    # gerade "Zeile von unten": rechts -> links
+                    col_range = range(n_r - 1, -1, -1)
+                else:
+                    # ungerade "Zeile von unten": links -> rechts
+                    col_range = range(0, n_r)
+                for i_r in col_range:
+                    path.append((i_l, i_r))
+
+        elif variant in ("col_serpentine", "cols", "snake_cols"):
+            # Start unten rechts, spaltenweise Schlange nach links
+            for col_idx_from_right, i_r in enumerate(range(n_r - 1, -1, -1)):
+                if col_idx_from_right % 2 == 0:
+                    # gerade "Spalte von rechts": unten -> oben
+                    row_range = range(n_l - 1, -1, -1)
+                else:
+                    # ungerade "Spalte von rechts": oben -> unten
+                    row_range = range(0, n_l)
+                for i_l in row_range:
+                    path.append((i_l, i_r))
+
+        else:
+            raise ValueError(f"Unbekannte variant='{variant}'. Unterstützt: "
+                             f"'row_serpentine', 'col_serpentine'.")
+
+        return path

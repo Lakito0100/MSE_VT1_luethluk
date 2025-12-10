@@ -3,6 +3,7 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.integrate import solve_ivp
 from numpy.linalg import solve
+import CoolProp.CoolProp as CP
 from CoolProp.CoolProp import PropsSI
 
 
@@ -16,22 +17,57 @@ class RefGeomParams:
     c_wall: float
     dp_ref_seg: float = 0.0
 
+    def __post_init__(self):
+        if self.A_flow <= 0:
+            raise ValueError(f"A_flow must be > 0, got {self.A_flow}")
+        if self.dx <= 0:
+            raise ValueError(f"dx must be > 0, got {self.dx}")
+        if self.A_inner <= 0:
+            raise ValueError(f"A_inner must be > 0, got {self.A_inner}")
+        if self.V_wall <= 0:
+            raise ValueError(f"V_wall must be > 0, got {self.V_wall}")
+        if self.rho_wall <= 0:
+            raise ValueError(f"rho_wall must be > 0, got {self.rho_wall}")
+        if self.c_wall <= 0:
+            raise ValueError(f"c_wall must be > 0, got {self.c_wall}")
+
 
 class Refrigerant:
-    def __init__(self, geom_params: RefGeomParams,
-                 connection_path=None):
+    def __init__(self,geometry, geom_params: RefGeomParams, cfg, path_variant="row_serpentine"):
         self.geom = geom_params
+        self.fluid = cfg.ref_str
+        self.AS = CP.AbstractState("HEOS", self.fluid)  # or "BICUBIC&HEOS", "TTSE&HEOS", etc.
+        self.connection_path = geometry.build_connection_path(variant=path_variant)
 
-        if connection_path is None:
-            self.connection_path = [
-                (4,4),(4,3),(4,2),(4,1),(4,0),
-                (3,0),(3,1),(3,2),(3,3),(3,4),
-                (2,4),(2,3),(2,2),(2,1),(2,0),
-                (1,0),(1,1),(1,2),(1,3),(1,4),
-                (0,4),(0,3),(0,2),(0,1),(0,0)
-            ]
+
+    def rho_and_derivs(self, p_i, h_i, x_i):
+        """
+        Returns density and its partial derivatives wrt p and h.
+
+        Inputs:
+            p_i  [Pa]      local pressure
+            h_i  [J/kg]    local specific enthalpy
+            x_i  [-]       local vapour quality from your model (cfg.x_ref)
+        """
+
+        AS = self.AS
+
+        # Update state with (P, H)
+        AS.update(CP.HmassP_INPUTS, h_i, p_i)
+        rho_i = AS.rhomass()
+
+        # Decide phase via your own quality
+        # two-phase if 0 < x < 1 (you can add a small tolerance if needed)
+        if 0.0 < x_i < 1.0:
+            # Two-phase (Thorade) derivatives
+            drho_dp = AS.first_two_phase_deriv(CP.iDmass, CP.iP,     CP.iHmass)   # (∂ρ/∂p)|h
+            drho_dh = AS.first_two_phase_deriv(CP.iDmass, CP.iHmass, CP.iP)       # (∂ρ/∂h)|p
         else:
-            self.connection_path = connection_path
+            # Single-phase derivatives
+            drho_dp = AS.first_partial_deriv(CP.iDmass, CP.iP,     CP.iHmass)     # (∂ρ/∂p)|h
+            drho_dh = AS.first_partial_deriv(CP.iDmass, CP.iHmass, CP.iP)         # (∂ρ/∂h)|p
+
+        return rho_i, drho_dp, drho_dh
 
     # ------------------------------------------------------------------
     # Lokale Korrelation für h_int (Wärmeübergang Wand ↔ Kältemittel)
@@ -106,13 +142,7 @@ class Refrigerant:
                 h_i = h[k]
 
                 # --- Thermodynamische Größen -----------------------
-                rho_i = PropsSI("D", "P", p_i, "H", h_i, fluid)
-
-                drho_dp = PropsSI("d(Dmass)/d(P)|H",
-                                      "P", p_i, "H", h_i, fluid)
-
-                drho_dh = PropsSI("d(Dmass)/d(Hmass)|P",
-                                      "P", p_i, "H", h_i, fluid)
+                rho_i, drho_dp, drho_dh = self.rho_and_derivs(p_i, h_i, cfg.x_ref)
 
                 # Y(h,p) und Z(h,p)
                 Y_i = h_i * drho_dh + rho_i
@@ -132,7 +162,7 @@ class Refrigerant:
                 )
 
                 Q_ref_i = h_int_i * gp.A_inner * (Tw[k] - T_ref_K)  # [W]
-                qdot_i = Q_ref_i / (gp.A_inner * gp.dx)               # [W/m³]
+                qdot_i = Q_ref_i / (gp.A_flow * gp.dx)               # [W/m³]
 
                 # RHS der Energiegleichung (2):
                 rhs_energy = (

@@ -12,13 +12,13 @@ import numpy as np
 
 
 class Simulator:
-    def __init__(self, geom, fields=("t")):
+    def __init__(self, geom, cfg, fields=("t")):
         self.rec = ResultRecorder(fields=fields, stream_path="sim_grid_log.jsonl")
 
         A_flow = (((geom.d_tube_a/2)-geom.tube_thickness)**2) * np.pi
         L = geom.l_tube()
         A_inner = (geom.d_tube_a-2*geom.tube_thickness)*np.pi*L
-        V_wall = (((geom.d_tube_a/2)**2) - A_flow)*L
+        V_wall = (((geom.d_tube_a/2)**2)*np.pi - A_flow)*L
 
         gp = RefGeomParams(
             A_flow  = A_flow,          # cross-section of one tube
@@ -31,7 +31,7 @@ class Simulator:
         )
 
         self.air = Air()
-        self.refrigerant = Refrigerant(gp,connection_path=geom.CP)
+        self.refrigerant = Refrigerant(geom,gp,cfg,geom.CP)
 
 
     def run(self, cfg, geom, gs, model):
@@ -43,6 +43,7 @@ class Simulator:
         model_e = model.Frostmodell_Edge()
         model_ft = model.Frostmodell_Finn_and_Tube()
 
+        s_max = geom.l_tube()/2.0
 
         t = 0.0
         it = 1
@@ -70,6 +71,9 @@ class Simulator:
                         t0_edge = time.perf_counter()
                         try:
                             iter_e, res_T_e, res_w_e = model_e.New_edge_state_seg_at_90(cfg, geom, st, gs)
+                            if st.s_e[89] >= s_max:
+                                print(f"\033[31mThe frost in the edge segment {(ix,iy)} is blocking the air flow, ending the simulation.\033[0m")
+                                gs.t_end = t
                         except Exception as e:
                             print("\033[31mThere was an error in the calculation for the new edge state, ending the simulation.\033[0m")
                             print(f'\033[31m{e}\033[0m')
@@ -86,6 +90,9 @@ class Simulator:
                     t0_ft = time.perf_counter()
                     try:
                         iter_ft, res_T_ft, res_w_ft = model_ft.New_finn_and_tube_state_seg(cfg, geom, st, gs)
+                        if st.s_ft >= s_max:
+                            print(f"\033[31mThe frost in the segment {(ix, iy)} is blocking the air flow, ending the simulation.\033[0m")
+                            gs.t_end = t
                     except Exception as e:
                         print("\033[31mThere was an error in the calculation for the new finn and tube state, ending the simulation.\033[0m")
                         print(f'\033[31m{e}\033[0m')
@@ -122,25 +129,13 @@ class Simulator:
 
                     Q_seg_x0_list[ix,iy] = Q_seg_x0
 
-        # Updating the refrigerant state -------------------------------------------------------------------------------
 
-            print('Updating the refrigerant state for all segments...')
-
-            self.refrigerant.update_all_segments(
-                input_cfg,  # inlet BC
-                cfg_grid,
-                st_grid,
-                geom,
-                Q_seg_x0_list,  # this is Q_f per segment
-                time=t,
-                dt=gs.dt,
-            )
 
         # Pushing the data ---------------------------------------------------------------------------------------------
 
             # Beispiel für ein paar globale Grössen:
-            T_outlet_air_mean = np.mean([cfg_grid[ix][-1].T_a
-                                 for ix in range(n_x)])
+            T_outlet_air_mean = np.mean([cfg_grid[-1][iy].T_a
+                                 for iy in range(n_y)])
             T_outlet_ref = cfg_grid[0][0].T_ref
             mean_s_ft = np.mean([st_grid[ix][iy].s_ft
                                  for ix in range(n_x)
@@ -162,13 +157,25 @@ class Simulator:
                     meta={"it": it}
                 )
 
+        # Updating the refrigerant state -------------------------------------------------------------------------------
+
+            print('Calculating the refrigerant state for the next time step in all segments...')
+
+            self.refrigerant.update_all_segments(
+                input_cfg,  # inlet BC
+                cfg_grid,
+                st_grid,
+                geom,
+                Q_seg_x0_list,  # this is Q_f per segment
+                time=t,
+                dt=gs.dt,
+            )
+
             it += 1
             t += gs.dt
             print(
                 "--------------------------------------------------------------------------------------------------"
-                  )
-
-
+            )
 
         t1_end = time.perf_counter()
         sim_time = t1_end - t0_start
