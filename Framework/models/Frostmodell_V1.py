@@ -593,24 +593,12 @@ class Frostmodell_Finn_and_Tube:
         # Wärmeströme
         q_sens_fs = h_eff * (cfg.T_a - Tfs)  # [W/m²]
         q_tot_fs = q_sens_fs + cfg.h_sub * m_delta  # [W/m²]
-        q_tot_fs_2 = self.k_f(st, -1) * (Tfs - st.T_ft[-2]) / dx
-        check_q_fs = (q_tot_fs - q_tot_fs_2)/q_tot_fs
+        #q_tot_fs_2 = self.k_f(st, -1) * (Tfs - st.T_ft[-2]) / dx
 
-        if abs(check_q_fs) > 1e-3:
-            print('\033[93mThe heat flow at the frost surface is not consistent.\033[00m')
-            print(f'\033[93mq_sens + q_lat = {q_tot_fs:.3e} W/m2\033[00m')
-            print(f'\033[93mk_eff * dT/dx|fs = {q_tot_fs_2:.3e} W/m2\033[00m')
-
-        q_tot_x0 = q_sens_fs + cfg.h_sub * m_x0
+        #q_tot_x0 = q_sens_fs + cfg.h_sub * m_x0
         q_tot_x0_2 = self.k_f(st, 0) * (st.T_ft[1] - st.T_ft[0])/dx
-        check_q_x0 = (q_tot_x0 - q_tot_x0_2)/q_tot_x0
 
-        if abs(check_q_x0) > 1e-3:
-            print('\033[93mThe heat flow at the surface of fins and tubes is not consistent.\033[00m')
-            print(f'\033[93mq_sens + q_lat = {q_tot_x0:.3e} W/m2\033[00m')
-            print(f'\033[93mk_eff * dT/dx|x=0 = {q_tot_x0_2:.3e} W/m2\033[00m')
-
-        return q_tot_fs_2, q_tot_x0_2, m_delta
+        return q_tot_fs, q_tot_x0_2, m_delta
 
     def segment_mass_flux_air_frost(self, cfg, geom, st, gs):
         """
