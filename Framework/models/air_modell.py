@@ -15,6 +15,7 @@ class Air:
                           m_dot_a: float,
                           Q_seg: float,
                           m_s_seg: float,
+                          dt: float,
                           dp_seg: float = 0.0):
         """
         Aktualisiert cfg_out in-place auf Basis von cfg_in und den Segmentflüssen.
@@ -37,7 +38,7 @@ class Air:
 
         # Energie- und Stoffbilanz
         dT = -Q_seg / (m_dot_a * cfg_in.c_p_a)
-        dw = -m_s_seg / m_dot_a
+        dw = -m_s_seg/m_dot_a
 
 
 
@@ -48,19 +49,17 @@ class Air:
         try:
             RH_out = HAPropsSI("R", "T", T_out+273.15, "P", p_out, "W", w_out)
         except:
-            RH_out = cfg_in.RH
+            RH_out = 1.0
             print(f'\033[93mCoolprop raised an exception when calculating RH_out, overwriting with RH_out = {RH_out:.3f}.\033[00m')
         rho_out = 1.0 / HAPropsSI("Vha", "T", T_out+273.15, "P", p_out, "W", w_out)
 
         # Update Geschwindigkeit
-        A_in = geom.h_fin * (geom.fin_pitch-2*s_frost_bevor)
-        A_out = geom.h_fin * (geom.fin_pitch - 2 * st_seg.s_ft)
-        mass_flow = A_in * v_in * rho_in
-        v_out = mass_flow / (A_out * rho_out)
+        A = geom.h_fin * (geom.fin_pitch-2*s_frost_bevor)
+        v_out = m_dot_a / (A * rho_out)
 
         # cfg_out in-place überschreiben (nur Luft-Daten)
         cfg_out.T_a = T_out
-        cfg_out.v_a = v_out  # Geschwindigkeit gleich angenommen
+        cfg_out.v_a = v_out
         cfg_out.p_a = p_out
         cfg_out.RH = RH_out
         cfg_out.w_amb = w_out
