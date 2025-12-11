@@ -30,6 +30,8 @@ class CaseConfig:
     rho_i: float        # kg/m^3 frost density (solid)
     h_sub: float        # kJ/kg latent heat of ablimation for water vapor
 
+    frost_condition = False
+
 @dataclass(frozen=False)
 class GridShape:
     # numerics

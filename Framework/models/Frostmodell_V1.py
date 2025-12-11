@@ -242,12 +242,19 @@ class Frostmodell_Edge:
                 hm = h / (rho_a_fs * cfg.c_p_a)
                 m_f = hm * rho_a_fs * (cfg.w_amb - wfs_sat)  # (9.11)
 
+                if m_f >= 0.0:
                 # diffusive Dampfmasse im Frost am Interface
-                De_s = self.D_eff(cfg, st, -1, j)
-                grad_w = (w_f_old[-1, j] - w_f_old[-2, j]) / dr  # dw/dr nach außen
-                m_rho = De_s * rho_a[-1] * grad_w  # (9.12)
-
-                m_delta = m_f - m_rho  # (9.13)
+                    De_s = self.D_eff(cfg, st, -1, j)
+                    grad_w = (w_f_old[-1, j] - w_f_old[-2, j]) / dr  # dw/dr nach außen
+                    m_rho = De_s * rho_a[-1] * grad_w  # (9.12)
+                    m_delta = m_f - m_rho  # (9.13)
+                    check_m_delta = False
+                else:
+                    De_s = self.D_eff(cfg, st, -1, j)
+                    grad_w = (w_f_old[-1, j] - w_f_old[-2, j]) / dr  # dw/dr nach außen
+                    m_rho = De_s * rho_a[-1] * grad_w  # (9.12)
+                    m_delta = 0.0
+                    check_m_delta = True
 
                 # Wärmeströme an der Oberfläche
                 q_sens = h * (cfg.T_a - Tfs)  # (9.9)
@@ -339,6 +346,9 @@ class Frostmodell_Edge:
         # rho_a updaten
         for j in  range(gs.ntheta):
             st.rho_a_e[:gs.nr, j] = self.rho_a_dry_local(T_f_new[:gs.nr, j], cfg.p_a)
+
+        if check_m_delta:
+            print(f"\033[31mNegative moisture mass flow detected, setting m_delta = 0!\033[0m")
 
         # --------- Explizites Update von rho_e und s_e ---------
 
@@ -441,11 +451,20 @@ class Frostmodell_Finn_and_Tube:
 
             # Massenströme (Luftseite + diffusive im Frost)
             dw = cfg.w_amb - wfs_sat
-            m_f = hm_eff * cfg.rho_amb * dw
-            Deff_s = self.D_eff(cfg, st, N - 1)
-            grad_w = (w_f_old[-1] - w_f_old[-2]) / dx
-            m_rho = Deff_s * rho_a[-1] * grad_w
-            m_delta = m_f - m_rho
+            if dw >= 0.0:
+                m_f = hm_eff * cfg.rho_amb * dw
+                Deff_s = self.D_eff(cfg, st, N - 1)
+                grad_w = (w_f_old[-1] - w_f_old[-2]) / dx
+                m_rho = Deff_s * rho_a[-1] * grad_w
+                m_delta = m_f - m_rho
+                check_m_delta = False
+            else:
+                m_f = hm_eff * cfg.rho_amb * dw
+                Deff_s = self.D_eff(cfg, st, N - 1)
+                grad_w = (w_f_old[-1] - w_f_old[-2]) / dx
+                m_rho = Deff_s * rho_a[-1] * grad_w
+                m_delta = 0.0
+                check_m_delta = True
 
             # Wärmeströme
             q_sens_fs = h_eff * (cfg.T_a - Tfs)
@@ -534,6 +553,9 @@ class Frostmodell_Finn_and_Tube:
         st.T_ft = T_f_new.copy()
         st.w_ft = w_f_new.copy()
 
+        if check_m_delta:
+            print(f"\033[31mNegative moisture mass flow detected, setting m_delta = 0!\033[0m")
+
         for i in range(N):
             st.rho_ft[i] = 207*np.exp(0.266*st.T_ft[-1] - 0.0615*cfg.T_tube)
 
@@ -586,9 +608,13 @@ class Frostmodell_Finn_and_Tube:
 
         # Massenflüsse (Luftseite + diffusive im Frost)
         dw = cfg.w_amb - wfs
-        m_fs = hm_eff * rho_a_s * dw # [kg/(m² s)]
-        m_rho = Deff_s * rho_a_s * grad_w  # [kg/(m² s)]
-        m_delta = m_fs - m_rho  # [kg/(m² s)]
+        if dw >= 0.0:
+            m_fs = hm_eff * rho_a_s * dw # [kg/(m² s)]
+            m_rho = Deff_s * rho_a_s * grad_w  # [kg/(m² s)]
+            m_delta = m_fs - m_rho  # [kg/(m² s)]
+        else:
+            m_delta = 0.0
+            print(f"\033[31mNegative moisture mass flow detected, setting m_delta = 0!\033[0m")
 
         m_x0 = cfg.C * st.rho_ft[0]*(st.w_ft[0]-self.w_sat_coolprop(st.T_ft[0], cfg.p_a))*dx
 

@@ -143,9 +143,12 @@ class Simulator:
                     st.t = t
                     print(f'Segment [{ix},{iy}]')
 
+                    if cfg.T_tube < 0.0:
+                        cfg.frost_condition = True
+
         # Updating the edge state --------------------------------------------------------------------------------------
 
-                    if ix == 0:
+                    if ix == 0 and cfg.frost_condition:
                         t0_edge = time.perf_counter()
                         try:
                             iter_e, res_T_e, res_w_e = model_e.New_edge_state_seg_at_90(cfg, geom, st, gs)
@@ -165,41 +168,56 @@ class Simulator:
 
         # Updating the finn and tube state -----------------------------------------------------------------------------
 
-                    t0_ft = time.perf_counter()
-                    try:
-                        iter_ft, res_T_ft, res_w_ft = model_ft.New_finn_and_tube_state_seg(cfg, geom, st, gs)
-                        if st.s_ft >= s_max:
-                            print(f"\033[31mThe frost in the segment {(ix, iy)} is blocking the air flow, ending the simulation.\033[0m")
+                    if cfg.frost_condition:
+                        t0_ft = time.perf_counter()
+                        try:
+                            iter_ft, res_T_ft, res_w_ft = model_ft.New_finn_and_tube_state_seg(cfg, geom, st, gs)
+                            if st.s_ft >= s_max:
+                                print(f"\033[31mThe frost in the segment {(ix, iy)} is blocking the air flow, ending the simulation.\033[0m")
+                                gs.t_end = t
+                        except Exception as e:
+                            print("\033[31mThere was an error in the calculation for the new finn and tube state, ending the simulation.\033[0m")
+                            print(f'\033[31m{e}\033[0m')
                             gs.t_end = t
-                    except Exception as e:
-                        print("\033[31mThere was an error in the calculation for the new finn and tube state, ending the simulation.\033[0m")
-                        print(f'\033[31m{e}\033[0m')
-                        gs.t_end = t
-                    t1_ft = time.perf_counter()
-                    ft_time = t1_ft - t0_ft
-                    print("Finn & Tube Domain Inner Iterations: " + str(iter_ft) +
-                          " \t w: " + f'{res_w_ft:.3e}' +
-                          " \t T: " + f'{res_T_ft:.3e}' +
-                          " \t cycle time: " + f'{ft_time:.3f} s'
-                          )
+                        t1_ft = time.perf_counter()
+                        ft_time = t1_ft - t0_ft
+                        print("Finn & Tube Domain Inner Iterations: " + str(iter_ft) +
+                              " \t w: " + f'{res_w_ft:.3e}' +
+                              " \t T: " + f'{res_T_ft:.3e}' +
+                              " \t cycle time: " + f'{ft_time:.3f} s'
+                              )
 
         # Updating the air state ---------------------------------------------------------------------------------------
 
                     print(f'Updating the air state for this segment [{ix},{iy}]...')
 
-                    m_s_seg = model_ft.segment_mass_flux_air_frost(cfg,geom,st,gs)
-                    Q_seg_fs, Q_seg_x0, Q_steady = model_ft.segment_heat_flux_air_frost(cfg,geom,st,gs)
-
                     m_dot_a = input_cfg.m_dot / n_y
 
-                    if ix == 0:
-                        T_out, w_out, p_out = self.air.propagate_inplace(input_cfg,cfg,st.s_e[89],st,geom,
-                                                                    m_dot_a,0,0,gs.dt)
+                    if cfg.frost_condition == True:
+                        if ix == 0:
+                            T_out, w_out, p_out = self.air.propagate_inplace(input_cfg,cfg,st.s_e[89],st,geom,
+                                                                        m_dot_a,0.0,0.0,gs.dt)
+                        else:
+                            m_s_seg = model_ft.segment_mass_flux_air_frost(cfg_grid[ix-1][iy], geom, st, gs)
+                            Q_seg_fs, Q_seg_x0, Q_steady = model_ft.segment_heat_flux_air_frost(cfg_grid[ix-1][iy], geom, st, gs)
+                            T_out, w_out, p_out = self.air.propagate_inplace(cfg_grid[ix-1][iy], cfg,st.s_ft,st,geom,
+                                                                        m_dot_a, Q_seg_fs, m_s_seg,gs.dt)
+
+                        Q_seg_fs_n, Q_seg_x0_n, Q_steady_n = model_ft.segment_heat_flux_air_frost(cfg, geom, st, gs)
+                        Q_seg_x0_list[ix, iy] = Q_seg_x0_n
+
                     else:
-                        m_s_seg = model_ft.segment_mass_flux_air_frost(cfg_grid[ix-1][iy], geom, st, gs)
-                        Q_seg_fs, Q_seg_x0, Q_steady = model_ft.segment_heat_flux_air_frost(cfg_grid[ix-1][iy], geom, st, gs)
-                        T_out, w_out, p_out = self.air.propagate_inplace(cfg_grid[ix-1][iy], cfg,st.s_ft,st,geom,
-                                                                    m_dot_a, Q_seg_fs, m_s_seg,gs.dt)
+                        if ix == 0:
+                            T_out, w_out, p_out = self.air.propagate_inplace(input_cfg,cfg,st.s_e[89],st,geom,
+                                                                        m_dot_a,0.0,0.0,gs.dt)
+                        else:
+                            m_s_seg = model_ft.segment_mass_flux_air_frost(cfg_grid[ix-1][iy], geom, st, gs)
+                            Q_seg_fs, Q_seg_x0, Q_steady = model_ft.segment_heat_flux_air_frost(cfg_grid[ix-1][iy], geom, st, gs)
+                            T_out, w_out, p_out = self.air.propagate_inplace(cfg_grid[ix-1][iy], cfg,st.s_ft,st,geom,
+                                                                        m_dot_a, Q_steady, 0.0,gs.dt)
+
+                        Q_seg_fs_n, Q_seg_x0_n, Q_steady_n = model_ft.segment_heat_flux_air_frost(cfg, geom, st, gs)
+                        Q_seg_x0_list[ix, iy] = Q_steady_n
 
                     print("Air Domain Results: " +
                           " \t new T: " + f'{T_out:.2f} °C' +
@@ -207,8 +225,7 @@ class Simulator:
                           " \t new P: " + f'{p_out:.3e} Pa'
                           )
 
-                    Q_seg_fs_n, Q_seg_x0_n, Q_steady_n = model_ft.segment_heat_flux_air_frost(cfg, geom, st, gs)
-                    Q_seg_x0_list[ix,iy] = Q_seg_x0_n
+
 
 
 
