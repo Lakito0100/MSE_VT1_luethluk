@@ -1,6 +1,5 @@
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
-import pandas as pd
 import numpy as np
 
 def extract_segment_timeseries_from_snapshots(grid_snapshots, field, ix, iy):
@@ -86,7 +85,9 @@ def plot_any(
     save_path=None,
     show=True,
     marker='o',
-    line_kwargs=None
+    line_kwargs=None,
+    label=None,          # für 1 Kurve
+    labels=None          # für mehrere Kurven (z.B. 4 Spalten)
 ):
 
     x = np.asarray(x)
@@ -94,7 +95,6 @@ def plot_any(
 
     if x.ndim != 1:
         raise ValueError(f"x must be 1D, got shape {x.shape}")
-    n = len(x)
 
     # Y definieren
     match kind:
@@ -122,20 +122,46 @@ def plot_any(
                 raise ValueError("theta_idx muss angegeben werde.")
             y_line = []
             for t in y:
-                y_line.append(t[r_idx,theta_idx])
+                y_line.append(t[r_idx, theta_idx])
+
+        case _:
+            raise ValueError(f"Unknown kind: {kind}")
+
+    y_line = np.asarray(y_line)
 
     # Plot
     fig, ax = plt.subplots()
     plot_kwargs = dict(marker=marker)
     if line_kwargs:
         plot_kwargs.update(line_kwargs)
-    ax.plot(x, y_line, **plot_kwargs)
+
+    # Wenn y_line 1D ist → eine Kurve
+    # Wenn y_line 2D ist → mehrere Kurven (z.B. 4 Spalten)
+    if y_line.ndim == 1:
+        if label is not None:
+            plot_kwargs["label"] = label
+        ax.plot(x, y_line, **plot_kwargs)
+    elif y_line.ndim == 2:
+        # Matplotlib macht automatisch mehrere Kurven
+        # (jede Spalte von y_line ist eine Kurve)
+        ax.plot(x, y_line, **plot_kwargs)
+        # Labels später per ax.legend(labels) setzen
+    else:
+        raise ValueError(f"y_line must be 1D or 2D, got shape {y_line.shape}")
 
     ax.set_xlabel(xlabel if xlabel else "x")
     ax.set_ylabel(ylabel if ylabel else "y")
     if title:
         ax.set_title(title)
     ax.grid(True)
+
+    # Legend-Logik
+    if y_line.ndim == 1:
+        if label is not None:
+            ax.legend()
+    else:  # mehrere Kurven
+        if labels is not None:
+            ax.legend(labels)
 
     if save_path:
         fig.savefig(save_path, dpi=300, bbox_inches="tight")

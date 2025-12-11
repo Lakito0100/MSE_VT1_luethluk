@@ -164,30 +164,9 @@ class Refrigerant:
                 Q_ref_i = h_int_i * gp.A_inner * (Tw[k] - T_ref_K)  # [W]
                 qdot_i = Q_ref_i / (gp.A_flow * gp.dx)               # [W/m³]
 
-                # RHS der Energiegleichung (2):
-                rhs_energy = (
-                    -m_dot_ref / (gp.A_flow * gp.dx) * (h_i - h_up)
-                    + rho_i * qdot_i
-                )
+                dpdt[k] = ((Z_i-Y_i*drho_dp/drho_dh)**(-1)) * (-m_dot_ref / (gp.A_flow * gp.dx) * (h_i - h_up) + qdot_i)
+                dhdt[k] = -dpdt[k] * drho_dp/drho_dh
 
-                # --- 2x2-System für [dp_i/dt, dh_i/dt] lösen --------
-                #   [ drho_dp  drho_dh ] [dp/dt] = [ 0        ]
-                #   [   Z_i      Y_i   ] [dh/dt]   [ rhs_energy ]
-                A_loc = np.array([[drho_dp, drho_dh],
-                                  [Z_i,     Y_i    ]], dtype=float)
-                b_loc = np.array([0.0, rhs_energy], dtype=float)
-
-                try:
-                    dp_i_dt, dh_i_dt = solve(A_loc, b_loc)
-                except np.linalg.LinAlgError as e:
-                    raise RuntimeError(
-                        f"Singuläres lokales System in Segment {k} bei t={t:.3f}s: {e}"
-                    )
-
-                dpdt[k] = dp_i_dt
-                dhdt[k] = dh_i_dt
-
-                # --- Wand-ODE (3): dTw/dt --------------------------
                 Q_f_i = Q_seg_list[ix][iy]       # [W] von Luft/Frost in äußere Wand
                 dTwdt[k] = (Q_f_i - Q_ref_i) / (gp.rho_wall * gp.c_wall * gp.V_wall)
 

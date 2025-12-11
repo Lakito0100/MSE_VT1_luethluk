@@ -440,7 +440,8 @@ class Frostmodell_Finn_and_Tube:
             wfs_sat = self.w_sat_coolprop(Tfs, cfg.p_a)
 
             # Massenströme (Luftseite + diffusive im Frost)
-            m_f = hm_eff * cfg.rho_amb * (cfg.w_amb - wfs_sat)
+            dw = cfg.w_amb - wfs_sat
+            m_f = hm_eff * cfg.rho_amb * dw
             Deff_s = self.D_eff(cfg, st, N - 1)
             grad_w = (w_f_old[-1] - w_f_old[-2]) / dx
             m_rho = Deff_s * rho_a[-1] * grad_w
@@ -584,7 +585,8 @@ class Frostmodell_Finn_and_Tube:
         grad_w = (st.w_ft[-1] - st.w_ft[-2]) / dx
 
         # Massenflüsse (Luftseite + diffusive im Frost)
-        m_fs = hm_eff * rho_a_s * (cfg.w_amb - wfs)  # [kg/(m² s)]
+        dw = cfg.w_amb - wfs
+        m_fs = hm_eff * rho_a_s * dw # [kg/(m² s)]
         m_rho = Deff_s * rho_a_s * grad_w  # [kg/(m² s)]
         m_delta = m_fs - m_rho  # [kg/(m² s)]
 
@@ -598,7 +600,10 @@ class Frostmodell_Finn_and_Tube:
         #q_tot_x0 = q_sens_fs + cfg.h_sub * m_x0
         q_tot_x0_2 = self.k_f(st, 0) * (st.T_ft[1] - st.T_ft[0])/dx
 
-        return q_tot_fs, q_tot_x0_2, m_delta
+        # Heat flow for steady state
+        q_steady = q_sens_fs
+
+        return q_tot_fs, q_tot_x0_2, m_delta, q_steady
 
     def segment_mass_flux_air_frost(self, cfg, geom, st, gs):
         """
@@ -607,7 +612,7 @@ class Frostmodell_Finn_and_Tube:
         Rückgabe:
             m_s_seg [kg/s]
         """
-        q_tot_fs, q_tot_x0, m_delta = self._segment_surface_fluxes(cfg, geom, st, gs)
+        q_tot_fs, q_tot_x0, m_delta, q_steady = self._segment_surface_fluxes(cfg, geom, st, gs)
 
         A_seg = geom.A_one_segment()
         m_s_seg = m_delta * A_seg  # [kg/s]
@@ -622,10 +627,13 @@ class Frostmodell_Finn_and_Tube:
             Q_seg_fs [W]
             Q_seg_x0 [W]
         """
-        q_tot_fs, q_tot_x0, m_delta = self._segment_surface_fluxes(cfg, geom, st, gs)
+        q_tot_fs, q_tot_x0, m_delta, q_steady = self._segment_surface_fluxes(cfg, geom, st, gs)
 
         A_seg = geom.A_one_segment()
         Q_seg_fs = q_tot_fs * A_seg  # [W]
         Q_seg_x0 = q_tot_x0 * A_seg  # [W]
 
-        return Q_seg_fs, Q_seg_x0
+        # For steady state
+        Q_steady = q_steady * A_seg
+
+        return Q_seg_fs, Q_seg_x0, Q_steady
