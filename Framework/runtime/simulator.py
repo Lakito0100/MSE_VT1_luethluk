@@ -1,3 +1,5 @@
+from CoolProp.CoolProp import HAPropsSI
+
 from Framework.runtime.state import SimState
 from Framework.runtime.recorder import ResultRecorder
 from Framework.runtime.initializer import init_fields
@@ -134,6 +136,8 @@ class Simulator:
 
             Q_seg_x0_list = np.zeros((n_x, n_y), dtype=float)
 
+            t_iteration_start = time.perf_counter()
+
             for ix in range(n_x):
                 for iy in range(n_y):
                     cfg = cfg_grid[ix][iy]
@@ -143,7 +147,15 @@ class Simulator:
                     st.t = t
                     print(f'Segment [{ix},{iy}]')
 
-                    if cfg.T_tube < 0.0:
+                    try:
+                        RH_air_at_wall = HAPropsSI("R",
+                                                   "T", cfg.T_tube+273.15,
+                                                   "P", cfg.p_a,
+                                                   "W", cfg.w_amb)
+                    except:
+                        RH_air_at_wall = 1.0
+
+                    if RH_air_at_wall >= 0.98:
                         cfg.frost_condition = True
 
         # Updating the edge state --------------------------------------------------------------------------------------
@@ -211,7 +223,6 @@ class Simulator:
                             T_out, w_out, p_out = self.air.propagate_inplace(input_cfg,cfg,st.s_e[89],st,geom,
                                                                         m_dot_a,0.0,0.0,gs.dt)
                         else:
-                            m_s_seg = model_ft.segment_mass_flux_air_frost(cfg_grid[ix-1][iy], geom, st, gs)
                             Q_seg_fs, Q_seg_x0, Q_steady = model_ft.segment_heat_flux_air_frost(cfg_grid[ix-1][iy], geom, st, gs)
                             T_out, w_out, p_out = self.air.propagate_inplace(cfg_grid[ix-1][iy], cfg,st.s_ft,st,geom,
                                                                         m_dot_a, Q_steady, 0.0,gs.dt)
@@ -270,6 +281,13 @@ class Simulator:
                 time=t,
                 dt=gs.dt,
             )
+
+            t_iteration_end = time.perf_counter()
+            time_iteration = t_iteration_end - t_iteration_start
+            time_remaining_est = time_iteration*(gs.t_end - t)/gs.dt
+
+            print(f"Cycle time for time step {it}: {time_iteration:.1f} s\n"
+                  f"\033[94mTime remaining: {time_remaining_est/60.0:.1f} min\033[0m")
 
             t += gs.dt
             print(
