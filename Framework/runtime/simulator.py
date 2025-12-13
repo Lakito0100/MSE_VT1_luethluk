@@ -112,7 +112,7 @@ class Simulator:
         model_e = model.Frostmodell_Edge()
         model_ft = model.Frostmodell_Finn_and_Tube()
 
-        s_max = (geom.fin_pitch-geom.fin_thickness)/2.0
+        s_max = geom.fin_gap()/2.0
 
         t = 0.0
         it = 0
@@ -153,8 +153,13 @@ class Simulator:
                                                    "P", cfg.p_a,
                                                    "W", cfg.w_amb)
                     except:
-                        RH_air_at_wall = 1.0
+                        w_sat_wall = HAPropsSI("W",
+                                               "T", cfg.T_tube + 273.15,
+                                               "P", cfg.p_a,
+                                               "R", 1.0)
+                        RH_air_at_wall = cfg.w_amb / max(w_sat_wall, 1e-12)
 
+                    RH_air_at_wall = max(0.0, min(1.0, RH_air_at_wall))
                     if RH_air_at_wall >= 0.98:
                         cfg.frost_condition = True
 
