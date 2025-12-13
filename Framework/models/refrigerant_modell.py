@@ -71,112 +71,260 @@ class Refrigerant:
 
     # ------------------------------------------------------------------
     # Lokale Korrelation für h_int (Wärmeübergang Wand ↔ Kältemittel)
-    # Aktuell nur Platzhalter: konstanter Wert 10 W/m²K
     # ------------------------------------------------------------------
     def h_int_corr(self,
                     x:float):
-        return 50.0
+        return 5000.0
 
-
-    def update_all_segments(self,
-                            cfg_inlet,
-                            cfg_grid,
-                            st_grid,
-                            geom,
-                            Q_seg_list,
-                            time: float,
-                            dt: float,):
+    def update_all_segments(
+            self,
+            cfg_inlet,
+            cfg_grid,
+            st_grid,
+            geom,
+            Q_seg_list,
+            time: float,
+            dt: float,
+    ):
         """
-        Integriert p_i, h_i, T_w,i von t_outer bis t_outer+dt_outer.
-        Benutzt BDF mit inneren Zeitschritten <= dt_inner.
-        In jedem Segment wird das 2x2-System aus (Massen- und
-        Energieerhaltung) nach [dp_i/dt, dh_i/dt] gelöst.
+        Integrates:
+          - one global refrigerant pressure P(t)  [Pa]
+          - segment enthalpies h_i(t)             [J/kg]
+          - segment tube wall temperatures Tw_i(t)[K]
+
+        At each RHS call, solves the coupled FV refrigerant equations
+        for [dP/dt, dh_i/dt] AND the internal face mass flows m_faces,
+        given boundary mass flows m_in and m_out.
+
+        Sign convention:
+          Q_ref_i > 0  means heat INTO the refrigerant [W]
+          Wall ODE uses dTw/dt = (Q_f_i - Q_ref_i) / (m_wall*c_wall)
+
+        NOTE:
+          You must supply a boundary outlet mass flow m_out.
+          If you have no compressor model yet, set m_out = m_in (fallback below).
         """
 
         fluid = cfg_inlet.ref_str
         gp = self.geom
         path = self.connection_path
-        n_seg = len(path)
+        N = len(path)
+
+        # ---------------------------
+        # Helper: solve 2N linear system
+        # Unknowns x = [dPdt, dhdt_0..dhdt_{N-1}, m_face_1..m_face_{N-1}]
+        # Equations: 2 per cell (mass + energy)
+        # Boundaries: m_face_0 = m_in, m_face_N = m_out
+        # ---------------------------
+        def solve_dp_dh_and_mfaces(P, h, h_in, m_in, m_out, Q_into_ref, V, rho, rhoP, rhoh):
+            """
+            Returns:
+              dPdt: scalar
+              dhdt: (N,) array
+              m_faces: (N+1,) array of face mass flows, where:
+                  m_faces[0]   = m_in
+                  m_faces[j]   = internal face j, j=1..N-1
+                  m_faces[N]   = m_out
+            """
+            if N == 1:
+                # 2x2 system for dPdt and dhdt only
+                a = V[0] * rhoP[0]
+                b = V[0] * rhoh[0]
+                c = V[0] * (h[0] * rhoP[0] - 1.0)
+                d = V[0] * (h[0] * rhoh[0] + rho[0])
+
+                rhs_m = m_in - m_out
+                rhs_e = m_in * h_in - m_out * h[0] + Q_into_ref[0]
+
+                det = a * d - b * c
+                dPdt = (rhs_m * d - b * rhs_e) / det
+                dhdt = np.array([(a * rhs_e - rhs_m * c) / det], dtype=float)
+                m_faces = np.array([m_in, m_out], dtype=float)
+                return dPdt, dhdt, m_faces
+
+            n_unknown = 2 * N  # 1 + N + (N-1)
+            A = np.zeros((2 * N, n_unknown), dtype=float)
+            bvec = np.zeros((2 * N,), dtype=float)
+
+            idx_dP = 0
+
+            def idx_dh(k):  # k=0..N-1
+                return 1 + k
+
+            def idx_mface(j):  # j=1..N-1
+                return 1 + N + (j - 1)
+
+            for k in range(N):
+                V_k = V[k]
+                rho_k = rho[k]
+                rhoP_k = rhoP[k]
+                rhoh_k = rhoh[k]
+                h_k = h[k]
+                h_up = h_in if k == 0 else h[k - 1]
+
+                # FV coefficients
+                a = V_k * rhoP_k
+                bb = V_k * rhoh_k
+                c = V_k * (h_k * rhoP_k - 1.0)
+                d = V_k * (h_k * rhoh_k + rho_k)
+
+                # Face indexing:
+                # left face is j=k   (0..N-1)  -> m_faces[k]
+                # right face is j=k+1 (1..N)   -> m_faces[k+1]
+                left_is_boundary = (k == 0)
+                right_is_boundary = (k == N - 1)
+
+                # ---------- Mass row ----------
+                # a dP + b dh = m_left - m_right
+                row_m = 2 * k
+                A[row_m, idx_dP] = a
+                A[row_m, idx_dh(k)] = bb
+
+                # RHS known boundary contributions
+                bvec[row_m] = (m_in if left_is_boundary else 0.0) - (m_out if right_is_boundary else 0.0)
+
+                # Unknown internal faces on LHS: -m_left + m_right
+                if not left_is_boundary:
+                    # left internal face index is j=k (1..N-1)
+                    A[row_m, idx_mface(k)] += -1.0
+                if not right_is_boundary:
+                    # right internal face index is j=k+1 (1..N-1)
+                    A[row_m, idx_mface(k + 1)] += +1.0
+
+                # ---------- Energy row ----------
+                # c dP + d dh = m_left*h_up - m_right*h_k + Q_into_ref
+                # => c dP + d dh - m_left*h_up + m_right*h_k = Q_into_ref
+                row_e = 2 * k + 1
+                A[row_e, idx_dP] = c
+                A[row_e, idx_dh(k)] = d
+
+                bvec[row_e] = Q_into_ref[k]
+                if left_is_boundary:
+                    bvec[row_e] += m_in * h_up
+                if right_is_boundary:
+                    bvec[row_e] += -m_out * h_k
+
+                if not left_is_boundary:
+                    A[row_e, idx_mface(k)] += -h_up
+                if not right_is_boundary:
+                    A[row_e, idx_mface(k + 1)] += +h_k
+
+            x = np.linalg.solve(A, bvec)
+
+            dPdt = float(x[idx_dP])
+            dhdt = x[1:1 + N].copy()
+
+            m_faces = np.empty(N + 1, dtype=float)
+            m_faces[0] = m_in
+            m_faces[N] = m_out
+            m_faces[1:N] = x[1 + N:]  # m_face_1..m_face_{N-1}
+
+            return dPdt, dhdt, m_faces
 
         # ----------------------------------------------------------
-        # 1) Massenstrom aus Eintrittszustand (konstant entlang Pfad)
+        # Initial state
         # ----------------------------------------------------------
-        rho_in = PropsSI("D", "P", cfg_inlet.p_ref,
-                              "H", cfg_inlet.h_ref, fluid)
-        m_dot_ref = rho_in * cfg_inlet.V_dot_ref
-        if m_dot_ref <= 0.0:
-            raise ValueError("Refrigerant: m_dot_ref <= 0 from inlet state.")
+        h0 = np.zeros(N, dtype=float)
+        Tw0 = np.zeros(N, dtype=float)
 
-        # ----------------------------------------------------------
-        # 2) Anfangszustand y0 = [p_0..p_N-1, h_0..h_N-1, Tw_0..Tw_N-1]
-        # ----------------------------------------------------------
-        p0 = np.zeros(n_seg)
-        h0 = np.zeros(n_seg)
-        Tw0 = np.zeros(n_seg)
+        # Pressure is global: pick inlet if available, else first segment
+        (ix0, iy0) = path[0]
+        cfg0 = cfg_grid[ix0][iy0]
+        P0 = float(getattr(cfg_inlet, "p_ref", cfg0.p_ref))
 
         for k, (ix, iy) in enumerate(path):
             cfg = cfg_grid[ix][iy]
-            p0[k] = cfg.p_ref
-            h0[k] = cfg.h_ref
+            h0[k] = float(cfg.h_ref)
             T_tube_C = getattr(cfg, "T_tube", cfg.T_ref)
-            Tw0[k] = T_tube_C + 273.15  # °C → K
+            Tw0[k] = float(T_tube_C + 273.15)
 
-        y0 = np.concatenate([p0, h0, Tw0])
+        # State vector: [P, h_0..h_{N-1}, Tw_0..Tw_{N-1}]
+        y0 = np.concatenate([np.array([P0]), h0, Tw0])
 
         # ----------------------------------------------------------
-        # 3) RHS der ODE: berechne [dp/dt, dh/dt, dTw/dt]
+        # Boundary mass flows (must come from cycle coupling)
+        # ----------------------------------------------------------
+        m_in = float(cfg_inlet.m_dot_ref)
+
+        # Best practice: provide m_out from compressor coupling.
+        # Fallback: use last segment stored value, else assume m_out=m_in.
+        (ixL, iyL) = path[-1]
+        cfgL = cfg_grid[ixL][iyL]
+        m_out = float(getattr(cfg_inlet, "m_dot_out_ref", getattr(cfgL, "m_dot_ref", m_in)))
+        if not np.isfinite(m_out):
+            m_out = m_in
+
+        # ----------------------------------------------------------
+        # RHS
         # ----------------------------------------------------------
         def rhs(t, y):
-            p = y[0:n_seg]
-            h = y[n_seg:2*n_seg]
-            Tw = y[2*n_seg:3*n_seg]
+            P = float(y[0])
+            h = y[1:1 + N]
+            Tw = y[1 + N:1 + 2 * N]
 
-            dpdt = np.zeros_like(p)
-            dhdt = np.zeros_like(h)
-            dTwdt = np.zeros_like(Tw)
+            # Per-segment arrays needed for linear solve
+            V = np.full(N, gp.A_flow * gp.dx, dtype=float)
+            rho = np.zeros(N, dtype=float)
+            rhoP = np.zeros(N, dtype=float)
+            rhoh = np.zeros(N, dtype=float)
+            Q_into_ref = np.zeros(N, dtype=float)  # + into refrigerant [W]
+            dTwdt = np.zeros(N, dtype=float)
 
+            # Build property and heat-transfer terms
             for k, (ix, iy) in enumerate(path):
-
                 cfg = cfg_grid[ix][iy]
-                p_i = p[k]
-                h_i = h[k]
+                h_k = float(h[k])
 
-                # --- Thermodynamische Größen -----------------------
-                rho_i, drho_dp, drho_dh = self.rho_and_derivs(p_i, h_i, cfg.x_ref)
+                # Quality for correlations (optional but useful)
+                try:
+                    x_k = float(PropsSI("Q", "P", P, "H", h_k, fluid))
+                except ValueError:
+                    x_k = float("nan")
 
-                # Y(h,p) und Z(h,p)
-                Y_i = h_i * drho_dh + rho_i
-                Z_i = h_i * drho_dp - 1.0
+                # density and derivatives at (P, h_k)
+                rho_k, drho_dP_k, drho_dh_k = self.rho_and_derivs(P, h_k, x_k)
+                rho[k] = float(rho_k)
+                rhoP[k] = float(drho_dP_k)
+                rhoh[k] = float(drho_dh_k)
 
-                # --- Konvektiver Term: upstream-Enthalpie ----------
-                if k == 0:
-                    h_up = cfg_inlet.h_ref
-                else:
-                    h_up = h[k-1]
+                # Refrigerant temperature
+                T_ref_K = float(PropsSI("T", "P", P, "H", h_k, fluid))
 
-                # --- Wärmetransfer Wand → Kältemittel --------------
-                T_ref_K = PropsSI("T", "P", p_i, "H", h_i, fluid)
+                # Internal HTC
+                h_int_k = float(self.h_int_corr(x=x_k))
 
-                h_int_i = self.h_int_corr(
-                    x=cfg.x_ref
-                )
+                # Heat rate into refrigerant (your convention)
+                Q_ref_k = h_int_k * gp.A_inner * (Tw[k] - T_ref_K)  # [W]
+                Q_into_ref[k] = Q_ref_k
 
-                Q_ref_i = h_int_i * gp.A_inner * (Tw[k] - T_ref_K)  # [W]
-                qdot_i = Q_ref_i / (gp.A_flow * gp.dx)               # [W/m³]
+                # External heat into wall (from air/frost model)
+                Q_f_k = float(Q_seg_list[ix][iy])  # [W] into wall
 
-                dpdt[k] = ((Z_i-Y_i*drho_dp/drho_dh)**(-1)) * (-m_dot_ref / (gp.A_flow * gp.dx) * (h_i - h_up) + qdot_i)
-                dhdt[k] = -dpdt[k] * drho_dp/drho_dh
+                # Wall ODE: (in - out) / (m*c)
+                dTwdt[k] = (Q_f_k - Q_ref_k) / (gp.rho_wall * gp.c_wall * gp.V_wall)
 
-                Q_f_i = Q_seg_list[ix][iy]       # [W] von Luft/Frost in äußere Wand
-                dTwdt[k] = (Q_f_i - Q_ref_i) / (gp.rho_wall * gp.c_wall * gp.V_wall)
+            # Solve coupled refrigerant linear system
+            dPdt, dhdt, _m_faces = solve_dp_dh_and_mfaces(
+                P=P,
+                h=h,
+                h_in=float(cfg_inlet.h_ref),
+                m_in=m_in,
+                m_out=m_out,
+                Q_into_ref=Q_into_ref,
+                V=V,
+                rho=rho,
+                rhoP=rhoP,
+                rhoh=rhoh,
+            )
 
-            return np.concatenate([dpdt, dhdt, dTwdt])
+            # Pack derivative vector
+            return np.concatenate([np.array([dPdt]), dhdt, dTwdt])
 
         # ----------------------------------------------------------
-        # 4) Integration über ein äußeres Zeitintervall
+        # Integrate
         # ----------------------------------------------------------
-        t0 = time
-        t1 = time + dt
+        t0 = float(time)
+        t1 = float(time + dt)
 
         cycl_t0_ref = perf_counter()
         sol = solve_ivp(
@@ -191,53 +339,89 @@ class Refrigerant:
         cycl_t1_ref = perf_counter()
 
         if not sol.success:
-            raise RuntimeError(
-                f"Refrigerant ODE solver failed: {sol.message}"
-            )
+            raise RuntimeError(f"Refrigerant ODE solver failed: {sol.message}")
 
-        # ein wenig Output wie bei Finn & Tube
-        n_inner = len(sol.t) - 1
+        # End state
         y_end = sol.y[:, -1]
-        p_end = y_end[0:n_seg]
-        h_end = y_end[n_seg:2*n_seg]
-        Tw_end = y_end[2*n_seg:3*n_seg]
+        P_end = float(y_end[0])
+        h_end = y_end[1:1 + N]
+        Tw_end = y_end[1 + N:1 + 2 * N]
 
-        # Beispiel: Auslass-Temperatur aus erstem Segment (Pfadanfang)
-        p_out0 = p_end[0]
-        h_out0 = h_end[0]
-        T_out0_K = PropsSI("T", "P", p_out0, "H", h_out0, fluid)
+        # Compute end-of-step internal mass flows for storing (optional but useful)
+        # Re-evaluate Q and properties at end state
+        V_end = np.full(N, gp.A_flow * gp.dx, dtype=float)
+        rho_end = np.zeros(N, dtype=float)
+        rhoP_end = np.zeros(N, dtype=float)
+        rhoh_end = np.zeros(N, dtype=float)
+        Q_into_ref_end = np.zeros(N, dtype=float)
+
+        for k, (ix, iy) in enumerate(path):
+            h_k = float(h_end[k])
+            try:
+                x_k = float(PropsSI("Q", "P", P_end, "H", h_k, fluid))
+            except ValueError:
+                x_k = float("nan")
+
+            rho_k, drho_dP_k, drho_dh_k = self.rho_and_derivs(P_end, h_k, x_k)
+            rho_end[k] = float(rho_k)
+            rhoP_end[k] = float(drho_dP_k)
+            rhoh_end[k] = float(drho_dh_k)
+
+            T_ref_K = float(PropsSI("T", "P", P_end, "H", h_k, fluid))
+            h_int_k = float(self.h_int_corr(x=x_k))
+            Q_into_ref_end[k] = h_int_k * gp.A_inner * (Tw_end[k] - T_ref_K)
+
+        _dPdt_end, _dhdt_end, m_faces_end = solve_dp_dh_and_mfaces(
+            P=P_end,
+            h=h_end,
+            h_in=float(cfg_inlet.h_ref),
+            m_in=m_in,
+            m_out=m_out,
+            Q_into_ref=Q_into_ref_end,
+            V=V_end,
+            rho=rho_end,
+            rhoP=rhoP_end,
+            rhoh=rhoh_end,
+        )
+
+        # Console output (same style as you had)
+        n_inner = len(sol.t) - 1
+        T_out0_K = float(PropsSI("T", "P", P_end, "H", float(h_end[0]), fluid))
         T_out0_C = T_out0_K - 273.15
-        mean_Tw_C = np.mean(Tw_end) - 273.15
-
+        mean_Tw_C = float(np.mean(Tw_end) - 273.15)
         ref_time = cycl_t1_ref - cycl_t0_ref
-        print("Refrigerant Domain Inner Steps: " + str(n_inner) +
-              " \t T_out_ref: " + f"{T_out0_C:.3e}" +
-              " \t mean T_tube: " + f"{mean_Tw_C:.3e}" +
-              " \t cycle time: " + f"{ref_time:.3f} s")
+
+        print(
+            "Refrigerant Domain Inner Steps: " + str(n_inner) +
+            " \t T_out_ref: " + f"{T_out0_C:.3e}" +
+            " \t mean T_tube: " + f"{mean_Tw_C:.3e}" +
+            " \t cycle time: " + f"{ref_time:.3f} s"
+        )
 
         # ----------------------------------------------------------
-        # 5) Endzustand zurück in cfg_grid schreiben
+        # Write back to cfg_grid
         # ----------------------------------------------------------
         for k, (ix, iy) in enumerate(path):
             cfg = cfg_grid[ix][iy]
+            h_k = float(h_end[k])
+            Tw_C = float(Tw_end[k] - 273.15)
 
-            p_out = float(p_end[k])
-            h_out = float(h_end[k])
+            # Cell-centered mass flow for storage: average of adjacent faces
+            m_cell = 0.5 * (m_faces_end[k] + m_faces_end[k + 1])
 
-            T_out_K = PropsSI("T", "P", p_out, "H", h_out, fluid)
-            T_out_C = T_out_K - 273.15
-
-            rho_out = PropsSI("D", "P", p_out, "H", h_out, fluid)
-            V_dot_out = m_dot_ref / rho_out
+            # Derived outputs
+            T_ref_K = float(PropsSI("T", "P", P_end, "H", h_k, fluid))
+            T_ref_C = T_ref_K - 273.15
+            rho_out = float(PropsSI("D", "P", P_end, "H", h_k, fluid))
 
             try:
-                x_out = PropsSI("Q", "P", p_out, "H", h_out, fluid)
+                x_out = float(PropsSI("Q", "P", P_end, "H", h_k, fluid))
             except ValueError:
                 x_out = float("nan")
 
-            cfg.p_ref = p_out
-            cfg.h_ref = h_out
-            cfg.T_ref = T_out_C
-            cfg.V_dot_ref = V_dot_out
+            cfg.p_ref = P_end
+            cfg.h_ref = h_k
+            cfg.T_ref = T_ref_C
+            cfg.m_dot_ref = float(m_cell)
             cfg.x_ref = x_out
-            cfg.T_tube = float(Tw_end[k] - 273.15)
+            cfg.T_tube = Tw_C

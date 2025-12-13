@@ -23,7 +23,7 @@ class CaseConfig:
     T_ref: float        # °C refrigerant temperature
     p_ref: float        # Pa Refrigerant Pressure
     h_ref: float        # J/kg specific Enthalpie
-    V_dot_ref: float    # m^3/s Volumeflow Refrigerant
+    m_dot_ref: float    # kg/s Massflow Refrigerant at the inlet and outlet
     x_ref: float        # [-]
 
     # ice data

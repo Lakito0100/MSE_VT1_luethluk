@@ -1,4 +1,5 @@
 import numpy as np
+import math
 from scipy.sparse import lil_matrix, csr_matrix
 from scipy.sparse.linalg import spsolve
 from Framework.core.corrolations import DK
@@ -394,22 +395,22 @@ class Frostmodell_Finn_and_Tube:
         return 0.132 + 3.13e-4 * rho_f + 1.6e-7 * (rho_f ** 2)
 
     def alpha_tube(self, cfg, geom):
-        l = np.pi*geom.d_tube_a/2.0
+        l = np.pi * geom.d_tube_a / 2.0
         Re = DK.Re(cfg.v_a, l, cfg.v_kin)
         Pr = 0.7
-        Nu_lam = 0.664*np.sqrt(Re) * Pr**(1/3)
-        Nu_turb = (0.037*(Re**0.8)*Pr)/(1 + 2.443*(Re**-0.1)*(Pr**(2/3)-1))
-        Nu = 0.3 + np.sqrt(Nu_lam**2 + Nu_turb**2)
-        alpha = Nu*cfg.lam/l
+        Nu_lam = 0.664 * np.sqrt(Re) * Pr ** (1 / 3)
+        Nu_turb = (0.037 * (Re ** 0.8) * Pr) / (1 + 2.443 * (Re ** -0.1) * (Pr ** (2 / 3) - 1))
+        Nu = 0.3 + np.sqrt(Nu_lam ** 2 + Nu_turb ** 2)
+        alpha = Nu * cfg.lam / l
         return alpha
 
     def h_eff(self, cfg, geom):
-        alpha_tube = self.alpha_tube(cfg,geom)
-        mue_fin = geom.mue_fin(alpha_tube)
+        h_0 = self.alpha_tube(cfg,geom)
+        mue_fin = geom.mue_fin(h_0)
         A_G = geom.A_tube_one_segment()
         A_R = geom.A_fin_one_segment()
         A = geom.A_one_segment()
-        h_eff = alpha_tube * (A_G/A + mue_fin*A_R/A)
+        h_eff = h_0 * (A_G/A + mue_fin*A_R/A)
         return h_eff
 
     def New_finn_and_tube_state_seg(self, cfg, geom, st, gs, tol=1e-6, niter=1000):
@@ -472,8 +473,8 @@ class Frostmodell_Finn_and_Tube:
             q_tot_fs = q_sens_fs + q_lat_fs
 
             # Temperatur an der Frosoberfläche
-            alpha_tube = self.alpha_tube(cfg, geom)
-            mue_fin = geom.mue_fin(alpha_tube)
+            h_0 = self.alpha_tube(cfg,geom)
+            mue_fin = geom.mue_fin(h_0)
             T_s_fs = cfg.T_a - (mue_fin*geom.A_fin_one_segment())*(cfg.T_a-cfg.T_tube)/(geom.A_one_segment())
 
             for i in range(N):
