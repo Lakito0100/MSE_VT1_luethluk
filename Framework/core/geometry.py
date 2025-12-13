@@ -10,16 +10,16 @@ class FlatPlate:
 class FinnTubedHX:
     n_seg_l: float          # Anzahl Reihen in Flussrichtung der Luft
     n_seg_r: float          # Anzahl Reihen in Flussrichtung des Kältemittelinlet
-    n_fin: float
-    l_fin: float
-    h_fin: float
-    fin_thickness: float
-    fin_pitch: float
-    d_tube_a: float
-    tube_thickness: float
-    lambda_fin: float
-    rho_solid: float
-    c_solid: float
+    n_fin: float            # Number of fins (only for the plot)
+    l_fin: float            # Length of the fins
+    h_fin: float            # Height of the fins (usually h_fin=l_fin)
+    fin_thickness: float    # Fin thickness
+    fin_pitch: float        # Fin pitch
+    d_tube_a: float         # Tube outer diameter
+    tube_thickness: float   # Tube wall thickness
+    lambda_fin: float       # Fin and tube heat conduction coefficient lambda
+    rho_solid: float        # Fin and tube density
+    c_solid: float          # Fin and tube heat capacity
     CP: str                 # Definition of the connection path
 
     def l_tube(self):
@@ -29,7 +29,7 @@ class FinnTubedHX:
         return self.d_tube_a * math.pi * self.fin_pitch
 
     def A_fin_one_segment(self):
-        return 2.0*(self.l_fin*self.h_fin - (self.d_tube_a**2)/4.0)
+        return 2.0*(self.l_fin*self.h_fin - ((self.d_tube_a**2)*math.pi)/4.0)
 
     def A_one_segment(self):
         return self.A_tube_one_segment() + self.A_fin_one_segment()

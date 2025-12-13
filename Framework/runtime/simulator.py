@@ -241,15 +241,17 @@ class Simulator:
 
 
         # Pushing the data ---------------------------------------------------------------------------------------------
-
             # Beispiel für ein paar globale Grössen:
+            path_ref = geom.build_connection_path(geom.CP)
+            (x_end, y_end) = path_ref[-1]
+
             T_outlet_air_mean = np.mean([cfg_grid[-1][iy].T_a
                                  for iy in range(n_y)])
-            T_outlet_ref = cfg_grid[0][0].T_ref
+            T_outlet_ref = cfg_grid[x_end][y_end].T_ref
             mean_s_ft = np.mean([st_grid[ix][iy].s_ft
                                  for ix in range(n_x)
                                  for iy in range(n_y)])
-            humid_l = np.array([seg[2].w_amb for seg in cfg_grid])
+            humid_l = np.array([seg[0].w_amb for seg in cfg_grid])
 
             # einfache Zeitsignale im Speicher halten
             self.rec.push(t=t,
