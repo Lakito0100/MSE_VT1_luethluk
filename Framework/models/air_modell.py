@@ -87,12 +87,17 @@ class Air:
 
         # Update velocity with a protected free-flow area
         A = geom.h_fin * max(geom.fin_gap() - 2.0 * s_frost_bevor, 1e-9)
-        v_out = m_dot_ha / (A * cfg_out.rho_amb)  # or recompute rho_out before
+        R_da = 287.058
+        T_K = T_out + 273.15
+        rho_da = p_out / (R_da * T_K * (1.0 + 1.6078 * w_out))  # kg_dry_air / m³
+        rho_moist = rho_da * (1.0 + w_out)  # kg_moist_air / m³
+        v_out = m_dot_ha / (A * rho_moist)
 
         cfg_out.T_a = T_out
         cfg_out.w_amb = w_out
         cfg_out.p_a = p_out
         cfg_out.RH = RH_out
+        cfg_out.rho_amb = rho_moist
         cfg_out.v_a = v_out
 
         return T_out, w_out, p_out

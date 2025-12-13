@@ -56,6 +56,9 @@ class Simulator:
                     cfg = cfg_grid[ix][iy]
                     st = st_grid[ix][iy]
 
+                    cfg_up = cfg_grid[ix - 1][iy]
+                    st_up = st_grid[ix - 1][iy]
+
                     # Updating the air state ---------------------------------------------------------------------------------------
                     st.T_ft[...] = cfg.T_tube
                     st.T_e[:, :] = cfg.T_tube
@@ -68,9 +71,9 @@ class Simulator:
                         T_out, w_out, p_out = self.air.propagate_inplace(input_cfg, cfg, st.s_e[89], st, geom,
                                                                          m_dot_a, 0.0, 0.0,gs.dt)
                     else:
-                        m_s_seg = model_ft.segment_mass_flux_air_frost(cfg_grid[ix - 1][iy], geom, st, gs)
-                        Q_seg_fs, Q_seg_x0, Q_steady = model_ft.segment_heat_flux_air_frost(cfg_grid[ix - 1][iy], geom, st, gs)
-                        T_out, w_out, p_out = self.air.propagate_inplace(cfg_grid[ix - 1][iy], cfg, st.s_ft, st, geom,
+                        m_s_seg = model_ft.segment_mass_flux_air_frost(cfg_grid[ix - 1][iy], geom, st_up, gs)
+                        Q_seg_fs, Q_seg_x0, Q_steady = model_ft.segment_heat_flux_air_frost(cfg_grid[ix - 1][iy], geom, st_up, gs)
+                        T_out, w_out, p_out = self.air.propagate_inplace(cfg_grid[ix - 1][iy], cfg, st_up.s_ft, st_up, geom,
                                                                          m_dot_a, Q_steady, m_s_seg,gs.dt)
 
                     Q_seg_fs_n, Q_seg_x0_n, Q_steady_n = model_ft.segment_heat_flux_air_frost(cfg, geom, st, gs)
@@ -142,6 +145,9 @@ class Simulator:
                 for iy in range(n_y):
                     cfg = cfg_grid[ix][iy]
                     st = st_grid[ix][iy]
+
+                    cfg_up = cfg_grid[ix - 1][iy]
+                    st_up = st_grid[ix - 1][iy]
 
                     gs.t = t
                     st.t = t
@@ -215,9 +221,9 @@ class Simulator:
                             T_out, w_out, p_out = self.air.propagate_inplace(input_cfg,cfg,st.s_e[89],st,geom,
                                                                         m_dot_a,0.0,0.0,gs.dt)
                         else:
-                            m_s_seg = model_ft.segment_mass_flux_air_frost(cfg_grid[ix-1][iy], geom, st, gs)
-                            Q_seg_fs, Q_seg_x0, Q_steady = model_ft.segment_heat_flux_air_frost(cfg_grid[ix-1][iy], geom, st, gs)
-                            T_out, w_out, p_out = self.air.propagate_inplace(cfg_grid[ix-1][iy], cfg,st.s_ft,st,geom,
+                            m_s_seg = model_ft.segment_mass_flux_air_frost(cfg_grid[ix-1][iy], geom, st_up, gs)
+                            Q_seg_fs, Q_seg_x0, Q_steady = model_ft.segment_heat_flux_air_frost(cfg_grid[ix-1][iy], geom, st_up, gs)
+                            T_out, w_out, p_out = self.air.propagate_inplace(cfg_grid[ix-1][iy], cfg,st_up.s_ft,st_up,geom,
                                                                         m_dot_a, Q_seg_fs, m_s_seg,gs.dt)
 
                         Q_seg_fs_n, Q_seg_x0_n, Q_steady_n = model_ft.segment_heat_flux_air_frost(cfg, geom, st, gs)
@@ -228,8 +234,8 @@ class Simulator:
                             T_out, w_out, p_out = self.air.propagate_inplace(input_cfg,cfg,st.s_e[89],st,geom,
                                                                         m_dot_a,0.0,0.0,gs.dt)
                         else:
-                            Q_seg_fs, Q_seg_x0, Q_steady = model_ft.segment_heat_flux_air_frost(cfg_grid[ix-1][iy], geom, st, gs)
-                            T_out, w_out, p_out = self.air.propagate_inplace(cfg_grid[ix-1][iy], cfg,st.s_ft,st,geom,
+                            Q_seg_fs, Q_seg_x0, Q_steady = model_ft.segment_heat_flux_air_frost(cfg_grid[ix-1][iy], geom, st_up, gs)
+                            T_out, w_out, p_out = self.air.propagate_inplace(cfg_grid[ix-1][iy], cfg,st_up.s_ft,st_up,geom,
                                                                         m_dot_a, Q_steady, 0.0,gs.dt)
 
                         Q_seg_fs_n, Q_seg_x0_n, Q_steady_n = model_ft.segment_heat_flux_air_frost(cfg, geom, st, gs)
