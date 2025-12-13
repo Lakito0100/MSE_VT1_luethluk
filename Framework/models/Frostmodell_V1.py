@@ -456,14 +456,14 @@ class Frostmodell_Finn_and_Tube:
 
             dw = cfg.w_amb - wfs_sat
             if dw >= 0.0:
-                m_f = hm_eff * cfg.rho_amb * dw
+                m_f = hm_eff * rho_a_sf * dw
                 Deff_s = self.D_eff(cfg, st, N - 1)
                 grad_w = (w_f_old[-1] - w_f_old[-2]) / dx
                 m_rho = Deff_s * rho_a[-1] * grad_w
                 m_delta = m_f - m_rho
                 check_m_delta = False
             else:
-                m_f = hm_eff * cfg.rho_amb * dw
+                m_f = hm_eff * rho_a_sf * dw
                 Deff_s = self.D_eff(cfg, st, N - 1)
                 grad_w = (w_f_old[-1] - w_f_old[-2]) / dx
                 m_rho = Deff_s * rho_a[-1] * grad_w
