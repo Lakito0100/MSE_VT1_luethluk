@@ -14,13 +14,13 @@ class Frostmodell_Edge:
 
     @staticmethod
     def Nu_edge(cfg, geom, theta):
-        Re_d = DK.Re(cfg.v_a, geom.fin_pitch, cfg.v_kin)
+        Re_d = DK.Re(cfg.v_a, geom.fin_pitch_cc, cfg.v_kin)
         Pr = DK.Pr(cfg.v_kin, cfg.lam, cfg.c_p_a, cfg.rho_amb)
         return 0.23 * (Re_d**0.466) * (Pr**(1/3)) * (0.7 + 1.06e-4 * (theta - 90)**2)
 
     def h_conv(self, cfg, geom, theta):
         Nu = self.Nu_edge(cfg, geom, theta)
-        return Nu * cfg.lam / geom.fin_pitch
+        return Nu * cfg.lam / geom.fin_pitch_cc
 
     def q_dot_sens_fs(self, cfg, geom, st, theta):
         T_fs = st.T_e[-1, theta]
@@ -432,7 +432,7 @@ class Frostmodell_Finn_and_Tube:
 
         # effektiver Luft-Wärmeübergang
         h_eff = self.h_eff(cfg, geom)
-        hm_eff = h_eff / (st.rho_a_ft[-1] * cfg.c_p_a)  # Massenübergangskoeffizient
+
 
         while (it < niter) and ((res_T > tol) or (res_w > tol)):
 
@@ -451,6 +451,9 @@ class Frostmodell_Finn_and_Tube:
             wfs_sat = self.w_sat_coolprop(Tfs, cfg.p_a)
 
             # Massenströme (Luftseite + diffusive im Frost)
+            rho_a_sf = self.rho_a_dry_local(Tfs, cfg.p_a)
+            hm_eff = h_eff / (rho_a_sf * cfg.c_p_a)  # Massenübergangskoeffizient
+
             dw = cfg.w_amb - wfs_sat
             if dw >= 0.0:
                 m_f = hm_eff * cfg.rho_amb * dw
@@ -547,7 +550,7 @@ class Frostmodell_Finn_and_Tube:
 
         # Wärmestrohm berechnen
         Q_sens = q_sens_fs*geom.A_one_segment()
-        Q_tot = Q_sens + cfg.h_sub*m_f*geom.A_one_segment()
+        Q_tot = Q_sens + cfg.h_sub*m_delta*geom.A_one_segment()
 
 
         # konvergierte Felder zurückschreiben
@@ -591,8 +594,7 @@ class Frostmodell_Finn_and_Tube:
 
         # effektiver Luft-Wärmeübergang
         h_eff = self.h_eff(cfg, geom)
-        # Massenübergangskoeffizient wie im Modell (Edge-Analog):
-        hm_eff = h_eff / (cfg.rho_amb * cfg.c_p_a)
+
 
         # aktuelles Frostgitter in x-Richtung
         delta_f = max(float(st.s_ft), 1e-6)
@@ -608,9 +610,11 @@ class Frostmodell_Finn_and_Tube:
         grad_w = (st.w_ft[-1] - st.w_ft[-2]) / dx
 
         # Massenflüsse (Luftseite + diffusive im Frost)
+        hm_eff = h_eff / (rho_a_s * cfg.c_p_a)
+
         dw = cfg.w_amb - wfs
         if dw >= 0.0:
-            m_fs = hm_eff * rho_a_s * dw # [kg/(m² s)]
+            m_fs = hm_eff * rho_a_s * dw  # [kg/(m² s)]
             m_rho = Deff_s * rho_a_s * grad_w  # [kg/(m² s)]
             m_delta = m_fs - m_rho  # [kg/(m² s)]
         else:
