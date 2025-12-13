@@ -1,4 +1,4 @@
-from CoolProp.CoolProp import HAPropsSI
+from CoolProp.HumidAirProp import HAPropsSI
 
 from Framework.runtime.state import SimState
 from Framework.runtime.recorder import ResultRecorder
@@ -112,7 +112,7 @@ class Simulator:
         model_e = model.Frostmodell_Edge()
         model_ft = model.Frostmodell_Finn_and_Tube()
 
-        s_max = geom.l_tube()/2.0
+        s_max = (geom.fin_pitch-geom.fin_thickness)/2.0
 
         t = 0.0
         it = 0

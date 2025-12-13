@@ -592,7 +592,7 @@ class Frostmodell_Finn_and_Tube:
         # effektiver Luft-Wärmeübergang
         h_eff = self.h_eff(cfg, geom)
         # Massenübergangskoeffizient wie im Modell (Edge-Analog):
-        hm_eff = h_eff / (cfg.rho_amb * cfg.c_p_a)
+        hm_eff = h_eff / (st.rho_a_ft[-1] * cfg.c_p_a)
 
         # aktuelles Frostgitter in x-Richtung
         delta_f = max(float(st.s_ft), 1e-6)
