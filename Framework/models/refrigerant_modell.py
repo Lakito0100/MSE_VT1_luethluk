@@ -252,9 +252,8 @@ class Refrigerant:
             #m_faces[0] = m_in
             #m_faces[N] = m_out
             #m_faces[1:N] = x[1 + N:]  # m_face_1..m_face_{N-1}
-            m_faces = 0.0
 
-            return dPdt, dhdt, m_faces
+            return dPdt, dhdt
 
         # ----------------------------------------------------------
         # Initial state
@@ -336,7 +335,7 @@ class Refrigerant:
                 dTwdt[k] = (Q_f_k - Q_ref_k) / (gp.rho_wall * gp.c_wall * gp.V_wall)
 
             # Solve coupled refrigerant linear system
-            dPdt, dhdt, _m_faces = solve_dp_dh_and_mfaces(
+            dPdt, dhdt = solve_dp_dh_and_mfaces(
                 P=P,
                 h=h,
                 h_in=float(cfg_inlet.h_ref),
@@ -381,42 +380,42 @@ class Refrigerant:
 
         # Compute end-of-step internal mass flows for storing (optional but useful)
         # Re-evaluate Q and properties at end state
-        V_end = np.full(N, gp.A_flow * gp.dx, dtype=float)
-        rho_end = np.zeros(N, dtype=float)
-        rhoP_end = np.zeros(N, dtype=float)
-        rhoh_end = np.zeros(N, dtype=float)
-        Q_into_ref_end = np.zeros(N, dtype=float)
+        #V_end = np.full(N, gp.A_flow * gp.dx, dtype=float)
+        #rho_end = np.zeros(N, dtype=float)
+        #rhoP_end = np.zeros(N, dtype=float)
+        #rhoh_end = np.zeros(N, dtype=float)
+        #Q_into_ref_end = np.zeros(N, dtype=float)
 
-        for k, (ix, iy) in enumerate(path):
-            h_k = float(h_end[k])
-            try:
-                x_k = float(PropsSI("Q", "P", P_end, "H", h_k, fluid))
-            except ValueError:
-                x_k = float("nan")
+        #for k, (ix, iy) in enumerate(path):
+            #h_k = float(h_end[k])
+            #try:
+                #x_k = float(PropsSI("Q", "P", P_end, "H", h_k, fluid))
+            #except ValueError:
+                #x_k = float("nan")
 
-            rho_k, drho_dP_k, drho_dh_k = self.rho_and_derivs(P_end, h_k, x_k)
-            rho_end[k] = float(rho_k)
-            rhoP_end[k] = float(drho_dP_k)
-            rhoh_end[k] = float(drho_dh_k)
+            #rho_k, drho_dP_k, drho_dh_k = self.rho_and_derivs(P_end, h_k, x_k)
+            #rho_end[k] = float(rho_k)
+            #rhoP_end[k] = float(drho_dP_k)
+            #rhoh_end[k] = float(drho_dh_k)
 
-            T_ref_K = float(PropsSI("T", "P", P_end, "H", h_k, fluid))
-            h_int_k = float(self.h_int_corr(x=x_k))
-            Q_into_ref_end[k] = h_int_k * gp.A_inner * (Tw_end[k] - T_ref_K)
+            #T_ref_K = float(PropsSI("T", "P", P_end, "H", h_k, fluid))
+            #h_int_k = float(self.h_int_corr(x=x_k))
+            #Q_into_ref_end[k] = h_int_k * gp.A_inner * (Tw_end[k] - T_ref_K)
 
-        _dPdt_end, _dhdt_end, m_faces_end = solve_dp_dh_and_mfaces(
-            P=P_end,
-            h=h_end,
-            h_in=float(cfg_inlet.h_ref),
-            m_in=m_in,
-            m_out=m_out,
-            Q_into_ref=Q_into_ref_end,
-            V=V_end,
-            rho=rho_end,
-            rhoP=rhoP_end,
-            rhoh=rhoh_end,
-        )
+        #_dPdt_end, _dhdt_end = solve_dp_dh_and_mfaces(
+            #P=P_end,
+            #h=h_end,
+            #h_in=float(cfg_inlet.h_ref),
+            #m_in=m_in,
+            #vm_out=m_out,
+            #Q_into_ref=Q_into_ref_end,
+            #V=V_end,
+            #rho=rho_end,
+            #rhoP=rhoP_end,
+            #rhoh=rhoh_end,
+        #)
 
-        # Console output (same style as you had)
+        # Console output
         n_inner = len(sol.t) - 1
         T_out0_K = float(PropsSI("T", "P", P_end, "H", float(h_end[0]), fluid))
         T_out0_C = T_out0_K - 273.15
