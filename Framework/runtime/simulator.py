@@ -13,7 +13,9 @@ import copy
 import numpy as np
 import io
 from contextlib import redirect_stdout
-
+import os
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class Simulator:
     def __init__(self, geom, cfg, fields=("t")):
@@ -115,6 +117,16 @@ class Simulator:
         model_e = model.Frostmodell_Edge()
         model_ft = model.Frostmodell_Finn_and_Tube()
 
+        # --- Parallel helpers (thread-local instances) ---
+        _tls = threading.local()
+
+        def _get_thread_models():
+            # Wichtig: pro Thread eigene Instanzen (verhindert Race-Conditions, falls Models internen Zustand haben)
+            if not hasattr(_tls, "model_e"):
+                _tls.model_e = model.Frostmodell_Edge()
+                _tls.model_ft = model.Frostmodell_Finn_and_Tube()
+            return _tls.model_e, _tls.model_ft
+
         s_max = geom.fin_gap()/2.0
 
         t = 0.0
@@ -137,121 +149,174 @@ class Simulator:
                   "\t Time: " + f'{t:.1f}' +
                   " s | " + f'{t / 60:.1f} min')
 
+            # --- pro Zeitschritt ---
             Q_seg_x0_list = np.zeros((n_x, n_y), dtype=float)
-
             t_iteration_start = time.perf_counter()
 
-            for ix in range(n_x):
-                for iy in range(n_y):
-                    cfg = cfg_grid[ix][iy]
-                    st = st_grid[ix][iy]
+            # gs.t einmal pro Zeitschritt setzen (nicht in Threads)
+            gs.t = t
 
+            max_workers = min(os.cpu_count() or 1, n_y)
+            stop_event = threading.Event()  # thread-safe stop flag
+
+            def _fmt_segment_line(info):
+                ix, iy = info["ix"], info["iy"]
+                parts = [f"Seg[{ix},{iy}]"]
+
+                # Edge / FT nur anzeigen, wenn berechnet (wie bisher – nur kompakter)
+                if info["edge"] is not None:
+                    iter_e, res_w_e, res_T_e, dt_e = info["edge"]
+                    parts.append(f"Edge(it={iter_e}, w={res_w_e:.3e}, T={res_T_e:.3e}, ct={dt_e:.3f}s)")
+                if info["ft"] is not None:
+                    iter_ft, res_w_ft, res_T_ft, dt_ft = info["ft"]
+                    parts.append(f"FT(it={iter_ft}, w={res_w_ft:.3e}, T={res_T_ft:.3e}, ct={dt_ft:.3f}s)")
+
+                # Air immer anzeigen (wie bisher)
+                T_out, w_out, p_out = info["air"]
+                parts.append(f"Air(T={T_out:.2f}°C, w={w_out:.3e} kg/kg, P={p_out:.3e} Pa)")
+
+                line = " | ".join(parts)
+
+                # Warnings/Errors als Zusatzzeilen, aber weiterhin geordnet und lesbar
+                extra = []
+                extra.extend(info["warn"])
+                extra.extend(info["err"])
+                if extra:
+                    return line + "\n" + "\n".join(extra)
+                return line
+
+            def _process_segment(ix, iy):
+                cfg = cfg_grid[ix][iy]
+                st  = st_grid[ix][iy]
+                st.t = t
+
+                # upstream nur lesen
+                if ix == 0:
+                    cfg_up = input_cfg
+                    st_up  = st
+                else:
                     cfg_up = cfg_grid[ix - 1][iy]
-                    st_up = st_grid[ix - 1][iy]
+                    st_up  = st_grid[ix - 1][iy]
 
-                    gs.t = t
-                    st.t = t
-                    print(f'Segment [{ix},{iy}]')
+                model_e_loc, model_ft_loc = _get_thread_models()
 
-                    try:
-                        RH_air_at_wall = HAPropsSI("R",
-                                                   "T", cfg.T_tube+273.15,
-                                                   "P", cfg.p_a,
-                                                   "W", cfg.w_amb)
-                    except:
-                        w_sat_wall = HAPropsSI("W",
+                info = {"ix": ix, "iy": iy, "edge": None, "ft": None, "air": None, "warn": [], "err": []}
+
+                # ---------------- Frost condition (unverändert) ----------------
+                try:
+                    RH_air_at_wall = HAPropsSI("R",
                                                "T", cfg.T_tube + 273.15,
                                                "P", cfg.p_a,
-                                               "R", 1.0)
-                        RH_air_at_wall = cfg.w_amb / max(w_sat_wall, 1e-12)
+                                               "W", cfg.w_amb)
+                except Exception:
+                    w_sat_wall = HAPropsSI("W",
+                                           "T", cfg.T_tube + 273.15,
+                                           "P", cfg.p_a,
+                                           "R", 1.0)
+                    RH_air_at_wall = cfg.w_amb / max(w_sat_wall, 1e-12)
 
-                    RH_air_at_wall = max(0.0, min(1.0, RH_air_at_wall))
-                    if RH_air_at_wall >= 0.98:
-                        cfg.frost_condition = True
+                RH_air_at_wall = max(0.0, min(1.0, RH_air_at_wall))
+                if RH_air_at_wall >= 0.98:
+                    cfg.frost_condition = True
 
-        # Updating the edge state --------------------------------------------------------------------------------------
+                # ---------------- Updating the edge state ----------------
+                if ix == 0 and cfg.frost_condition:
+                    t0_edge = time.perf_counter()
+                    iter_e = 0
+                    res_T_e = float("nan")
+                    res_w_e = float("nan")
+                    try:
+                        iter_e, res_T_e, res_w_e = model_e_loc.New_edge_state_seg_at_90(cfg, geom, st, gs)
+                        if st.s_e[89] >= s_max:
+                            info["warn"].append(
+                                f"\033[31mThe frost in the edge segment {(ix, iy)} is blocking the air flow, ending the simulation.\033[0m"
+                            )
+                            stop_event.set()
+                    except Exception as e:
+                        info["err"].append("\033[31mThere was an error in the calculation for the new edge state, ending the simulation.\033[0m")
+                        info["err"].append(f"\033[31m{e}\033[0m")
+                        stop_event.set()
+                    t1_edge = time.perf_counter()
+                    info["edge"] = (iter_e, res_w_e, res_T_e, t1_edge - t0_edge)
 
-                    if ix == 0 and cfg.frost_condition:
-                        t0_edge = time.perf_counter()
-                        try:
-                            iter_e, res_T_e, res_w_e = model_e.New_edge_state_seg_at_90(cfg, geom, st, gs)
-                            if st.s_e[89] >= s_max:
-                                print(f"\033[31mThe frost in the edge segment {(ix,iy)} is blocking the air flow, ending the simulation.\033[0m")
-                                gs.t_end = t
-                        except Exception as e:
-                            print("\033[31mThere was an error in the calculation for the new edge state, ending the simulation.\033[0m")
-                            print(f'\033[31m{e}\033[0m')
-                            gs.t_end = t
-                        t1_edge = time.perf_counter()
-                        edge_time = t1_edge - t0_edge
-                        print("Edge Domain Inner Iterations: " + str(iter_e) +
-                              " \t \t \t w: " + f'{res_w_e:.3e}' +
-                              " \t T: " + f'{res_T_e:.3e}' +
-                              " \t cycle time: " + f'{edge_time:.3f} s')
+                # ---------------- Updating the finn and tube state ----------------
+                if cfg.frost_condition:
+                    t0_ft = time.perf_counter()
+                    iter_ft = 0
+                    res_T_ft = float("nan")
+                    res_w_ft = float("nan")
+                    try:
+                        iter_ft, res_T_ft, res_w_ft = model_ft_loc.New_finn_and_tube_state_seg(cfg, geom, st, gs)
+                        if st.s_ft >= s_max:
+                            info["warn"].append(
+                                f"\033[31mThe frost in the segment {(ix, iy)} is blocking the air flow, ending the simulation.\033[0m"
+                            )
+                            stop_event.set()
+                    except Exception as e:
+                        info["err"].append("\033[31mThere was an error in the calculation for the new finn and tube state, ending the simulation.\033[0m")
+                        info["err"].append(f"\033[31m{e}\033[0m")
+                        stop_event.set()
+                    t1_ft = time.perf_counter()
+                    info["ft"] = (iter_ft, res_w_ft, res_T_ft, t1_ft - t0_ft)
 
-        # Updating the finn and tube state -----------------------------------------------------------------------------
+                # ---------------- Updating the air state ----------------
+                m_dot_a = input_cfg.m_dot / n_y
 
-                    if cfg.frost_condition:
-                        t0_ft = time.perf_counter()
-                        try:
-                            iter_ft, res_T_ft, res_w_ft = model_ft.New_finn_and_tube_state_seg(cfg, geom, st, gs)
-                            if st.s_ft >= s_max:
-                                print(f"\033[31mThe frost in the segment {(ix, iy)} is blocking the air flow, ending the simulation.\033[0m")
-                                gs.t_end = t
-                        except Exception as e:
-                            print("\033[31mThere was an error in the calculation for the new finn and tube state, ending the simulation.\033[0m")
-                            print(f'\033[31m{e}\033[0m')
-                            gs.t_end = t
-                        t1_ft = time.perf_counter()
-                        ft_time = t1_ft - t0_ft
-                        print("Finn & Tube Domain Inner Iterations: " + str(iter_ft) +
-                              " \t w: " + f'{res_w_ft:.3e}' +
-                              " \t T: " + f'{res_T_ft:.3e}' +
-                              " \t cycle time: " + f'{ft_time:.3f} s'
-                              )
-
-        # Updating the air state ---------------------------------------------------------------------------------------
-
-                    print(f'Updating the air state for this segment [{ix},{iy}]...')
-
-                    m_dot_a = input_cfg.m_dot / n_y
-
-                    if cfg.frost_condition == True:
-                        if ix == 0:
-                            T_out, w_out, p_out = self.air.propagate_inplace(input_cfg,cfg,st.s_e[89],st,geom,
-                                                                        m_dot_a,0.0,0.0,gs.dt)
-                        else:
-                            m_s_seg = model_ft.segment_mass_flux_air_frost(cfg_grid[ix-1][iy], geom, st_up, gs)
-                            Q_seg_fs, Q_seg_x0, Q_steady = model_ft.segment_heat_flux_air_frost(cfg_grid[ix-1][iy], geom, st_up, gs)
-                            T_out, w_out, p_out = self.air.propagate_inplace(cfg_grid[ix-1][iy], cfg,st_up.s_ft,st_up,geom,
-                                                                        m_dot_a, Q_seg_fs, m_s_seg,gs.dt)
-
-                        Q_seg_fs_n, Q_seg_x0_n, Q_steady_n = model_ft.segment_heat_flux_air_frost(cfg, geom, st, gs)
-                        Q_seg_x0_list[ix, iy] = Q_seg_x0_n
-
+                if cfg.frost_condition == True:
+                    if ix == 0:
+                        T_out, w_out, p_out = self.air.propagate_inplace(
+                            input_cfg, cfg, st.s_e[89], st, geom, m_dot_a, 0.0, 0.0, gs.dt
+                        )
                     else:
-                        if ix == 0:
-                            T_out, w_out, p_out = self.air.propagate_inplace(input_cfg,cfg,st.s_e[89],st,geom,
-                                                                        m_dot_a,0.0,0.0,gs.dt)
-                        else:
-                            Q_seg_fs, Q_seg_x0, Q_steady = model_ft.segment_heat_flux_air_frost(cfg_grid[ix-1][iy], geom, st_up, gs)
-                            T_out, w_out, p_out = self.air.propagate_inplace(cfg_grid[ix-1][iy], cfg,st_up.s_ft,st_up,geom,
-                                                                        m_dot_a, Q_steady, 0.0,gs.dt)
+                        m_s_seg = model_ft_loc.segment_mass_flux_air_frost(cfg_grid[ix - 1][iy], geom, st_up, gs)
+                        Q_seg_fs, Q_seg_x0, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_grid[ix - 1][iy], geom, st_up, gs)
+                        T_out, w_out, p_out = self.air.propagate_inplace(
+                            cfg_grid[ix - 1][iy], cfg, st_up.s_ft, st_up, geom, m_dot_a, Q_seg_fs, m_s_seg, gs.dt
+                        )
 
-                        Q_seg_fs_n, Q_seg_x0_n, Q_steady_n = model_ft.segment_heat_flux_air_frost(cfg, geom, st, gs)
-                        Q_seg_x0_list[ix, iy] = Q_steady_n
+                    _, Q_seg_x0_n, _ = model_ft_loc.segment_heat_flux_air_frost(cfg, geom, st, gs)
+                    q_for_list = Q_seg_x0_n
 
-                    print("Air Domain Results: " +
-                          " \t new T: " + f'{T_out:.2f} °C' +
-                          " \t new w: " + f'{w_out:.3e} kg/kg' +
-                          " \t new P: " + f'{p_out:.3e} Pa'
-                          )
+                else:
+                    if ix == 0:
+                        T_out, w_out, p_out = self.air.propagate_inplace(
+                            input_cfg, cfg, st.s_e[89], st, geom, m_dot_a, 0.0, 0.0, gs.dt
+                        )
+                    else:
+                        Q_seg_fs, Q_seg_x0, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_grid[ix - 1][iy], geom, st_up, gs)
+                        T_out, w_out, p_out = self.air.propagate_inplace(
+                            cfg_grid[ix - 1][iy], cfg, st_up.s_ft, st_up, geom, m_dot_a, Q_steady, 0.0, gs.dt
+                        )
+
+                    _, _, Q_steady_n = model_ft_loc.segment_heat_flux_air_frost(cfg, geom, st, gs)
+                    q_for_list = Q_steady_n
+
+                info["air"] = (T_out, w_out, p_out)
+                return iy, q_for_list, info
+
+            # --- Parallel über iy, sequenziell über ix ---
+            for ix in range(n_x):
+                infos_by_iy = [None] * n_y
+
+                with ThreadPoolExecutor(max_workers=max_workers) as ex:
+                    futures = [ex.submit(_process_segment, ix, iy) for iy in range(n_y)]
+                    for fut in as_completed(futures):
+                        iy, q_val, info = fut.result()
+                        Q_seg_x0_list[ix, iy] = q_val
+                        infos_by_iy[iy] = info
+
+                # Geordnet ausgeben (iy=0..n_y-1), aber kompakt
+                for iy in range(n_y):
+                    info = infos_by_iy[iy]
+                    if info is not None:
+                        print(_fmt_segment_line(info))
+
+            if stop_event.is_set():
+                gs.t_end = t
 
 
 
-
-
-        # Pushing the data ---------------------------------------------------------------------------------------------
+            # Pushing the data ---------------------------------------------------------------------------------------------
             # Beispiel für ein paar globale Grössen:
             path_ref = geom.build_connection_path(geom.CP)
             (x_end, y_end) = path_ref[-1]
