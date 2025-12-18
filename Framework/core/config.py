@@ -23,7 +23,8 @@ class CaseConfig:
     T_ref: float        # °C refrigerant temperature
     p_ref: float        # Pa Refrigerant Pressure
     h_ref: float        # J/kg specific Enthalpie
-    m_dot_ref: float    # kg/s Massflow Refrigerant at the inlet and outlet
+    m_dot_ref: float    # kg/s Massflow Refrigerant at the inlet
+    m_dot_ref_out: float   # kg/s Massflow Refrigerant at the outlet
     x_ref: float        # [-]
 
     # ice data
@@ -42,3 +43,8 @@ class GridShape:
     nx: int = 100
     nr: int = 100
     ntheta: int = 90
+
+    cal_steady_state: bool = True
+    cal_air: bool = True
+    cal_frost: bool = True
+    cal_ref: bool = True

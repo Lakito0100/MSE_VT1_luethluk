@@ -201,6 +201,21 @@ fig, ax, Z_Ta = plot.plot_segment_field_grid(
 )
 
 plot.plot_any(kind="time vs any",
+              x=data['t'], y=data['k_from_air'],
+              xlabel="Zeit [s]", ylabel="Wärmeübergangskoeffizient [W/($m^2$K)]",
+              title=f"Wärmeübergangskoeffizient aus Q_dot_air", marker=None)
+
+plot.plot_any(kind="time vs any",
+              x=data['t'], y=data['k_from_ref'],
+              xlabel="Zeit [s]", ylabel="Wärmeübergangskoeffizient [W/($m^2$K)]",
+              title=f"Wärmeübergangskoeffizient aus Q_dot_ref", marker=None)
+
+plot.plot_any(kind="time vs any",
+              x=data['t'], y=data['k_diff'],
+              xlabel="Zeit [s]", ylabel="Differenz (k_from_air - k_from_ref) [W/($m^2$K)]",
+              title=f"Differenz der Wärmeübergangskoeffizient", marker=None)
+
+plot.plot_any(kind="time vs any",
               x=data['t'], y=data['mean_s_ft'],
               xlabel="Zeit [s]", ylabel="Frostdicke [m]",
               title=f"Durchschnittliche Frostdicke", marker=None)
@@ -219,7 +234,7 @@ plot.plot_any(kind="time vs any",
               x=data['t'], y=data['humidity'],
               xlabel="Zeit [s]", ylabel="Feuchtegehalt [kg/kg]",
               title=f"Feuchtgehalt entlang dem Luftstrom", marker=None,
-              labels=["Seg 1","Seg 2","Seg 3","Seg 4"])
+              labels=["Seg 1","Seg 2","Seg 3","Seg 4","Seg 5"])
 
 # Segment auswählen
 ix, iy = 0, 2

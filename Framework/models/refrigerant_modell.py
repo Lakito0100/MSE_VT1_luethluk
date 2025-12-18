@@ -126,98 +126,133 @@ class Refrigerant:
                   m_faces[j]   = internal face j, j=1..N-1
                   m_faces[N]   = m_out
             """
-            if N == 1:
-                # 2x2 system for dPdt and dhdt only
-                a = V[0] * rhoP[0]
-                b = V[0] * rhoh[0]
-                c = V[0] * (h[0] * rhoP[0] - 1.0)
-                d = V[0] * (h[0] * rhoh[0] + rho[0])
+            # if N == 1:
+            #     # 2x2 system for dPdt and dhdt only
+            #     a = V[0] * rhoP[0]
+            #     b = V[0] * rhoh[0]
+            #     c = V[0] * (h[0] * rhoP[0] - 1.0)
+            #     d = V[0] * (h[0] * rhoh[0] + rho[0])
+            #
+            #     rhs_m = m_in - m_out
+            #     rhs_e = m_in * h_in - m_out * h[0] + Q_into_ref[0]
+            #
+            #     det = a * d - b * c
+            #     dPdt = (rhs_m * d - b * rhs_e) / det
+            #     dhdt = np.array([(a * rhs_e - rhs_m * c) / det], dtype=float)
+            #     m_faces = np.array([m_in, m_out], dtype=float)
+            #     return dPdt, dhdt, m_faces
 
-                rhs_m = m_in - m_out
-                rhs_e = m_in * h_in - m_out * h[0] + Q_into_ref[0]
+            a = V * rhoP
+            b = V * rhoh
+            c = V*(h*rhoP - 1.0)
+            d = V*(h*rhoh + rho)
 
-                det = a * d - b * c
-                dPdt = (rhs_m * d - b * rhs_e) / det
-                dhdt = np.array([(a * rhs_e - rhs_m * c) / det], dtype=float)
-                m_faces = np.array([m_in, m_out], dtype=float)
-                return dPdt, dhdt, m_faces
+            A_mat = np.zeros((N + 1, N + 1))
+            b_vec = np.zeros((N + 1,))
 
-            n_unknown = 2 * N  # 1 + N + (N-1)
-            A = np.zeros((2 * N, n_unknown), dtype=float)
-            bvec = np.zeros((2 * N,), dtype=float)
+            # --- [1] Total Mass and Energy balances ---
+            idx_v = np.arange(0, N + 1)
+            # Mass
+            A_mat[0, idx_v[0]] = np.sum(a)
+            A_mat[0, idx_v[1:]] = b
+            b_vec[0] = m_in - m_out
+            # Energy
+            A_mat[1, idx_v[0]] = np.sum(c)
+            A_mat[1, idx_v[1:]] = d
+            b_vec[1] = m_in * h_in - m_out * h[-1] + np.sum(Q_into_ref)
 
-            idx_dP = 0
+            # --- [2] Energy balances ---
+            A_mat[2, 0] = c[0] - a[0] * h[0]
+            A_mat[2, 1] = d[0] - b[0] * h[0]
+            b_vec[2] = m_in * (h_in - h[0]) + Q_into_ref[0]
+            row_e = np.arange(3, N + 1)
+            A_mat[row_e, 0] = c[1:-1] - a[1:-1] * h[1:-1] - (h[1:-1] - h[:-2]) * np.cumsum(a[:N - 2])
+            A_mat[row_e, np.arange(2, N)] = d[1:-1] - b[1:-1] * h[1:-1]
+            b_vec[row_e] = m_in * (h[:-2] - h[1:-1]) + Q_into_ref[1:-1]
+            delta_h = h[1:-1] - h[:-2]
+            b_broadcast = b[np.newaxis, :N - 1]
+            delta_h_broadcast = delta_h[:, np.newaxis]
+            lower_tri = np.tril(np.ones((N - 2, N - 1)))
+            fill_vals = delta_h_broadcast * b_broadcast * lower_tri
+            A_mat[row_e[:, None], np.arange(1, N)] += fill_vals
 
-            def idx_dh(k):  # k=0..N-1
-                return 1 + k
+            # n_unknown = 2 * N  # 1 + N + (N-1)
+            # A = np.zeros((2 * N, n_unknown), dtype=float)
+            # bvec = np.zeros((2 * N,), dtype=float)
+            #
+            # idx_dP = 0
+            #
+            # def idx_dh(k):  # k=0..N-1
+            #     return 1 + k
+            #
+            # def idx_mface(j):  # j=1..N-1
+            #     return 1 + N + (j - 1)
+            #
+            # for k in range(N):
+            #     V_k = V[k]
+            #     rho_k = rho[k]
+            #     rhoP_k = rhoP[k]
+            #     rhoh_k = rhoh[k]
+            #     h_k = h[k]
+            #     h_up = h_in if k == 0 else h[k - 1]
+            #
+            #     # FV coefficients
+            #     a = V_k * rhoP_k
+            #     bb = V_k * rhoh_k
+            #     c = V_k * (h_k * rhoP_k - 1.0)
+            #     d = V_k * (h_k * rhoh_k + rho_k)
+            #
+            #     # Face indexing:
+            #     # left face is j=k   (0..N-1)  -> m_faces[k]
+            #     # right face is j=k+1 (1..N)   -> m_faces[k+1]
+            #     left_is_boundary = (k == 0)
+            #     right_is_boundary = (k == N - 1)
+            #
+            #     # ---------- Mass row ----------
+            #     # a dP + b dh = m_left - m_right
+            #     row_m = 2 * k
+            #     A[row_m, idx_dP] = a
+            #     A[row_m, idx_dh(k)] = bb
+            #
+            #     # RHS known boundary contributions
+            #     bvec[row_m] = (m_in if left_is_boundary else 0.0) - (m_out if right_is_boundary else 0.0)
+            #
+            #     # Unknown internal faces on LHS: -m_left + m_right
+            #     if not left_is_boundary:
+            #         # left internal face index is j=k (1..N-1)
+            #         A[row_m, idx_mface(k)] += -1.0
+            #     if not right_is_boundary:
+            #         # right internal face index is j=k+1 (1..N-1)
+            #         A[row_m, idx_mface(k + 1)] += +1.0
+            #
+            #     # ---------- Energy row ----------
+            #     # c dP + d dh = m_left*h_up - m_right*h_k + Q_into_ref
+            #     # => c dP + d dh - m_left*h_up + m_right*h_k = Q_into_ref
+            #     row_e = 2 * k + 1
+            #     A[row_e, idx_dP] = c
+            #     A[row_e, idx_dh(k)] = d
+            #
+            #     bvec[row_e] = Q_into_ref[k]
+            #     if left_is_boundary:
+            #         bvec[row_e] += m_in * h_up
+            #     if right_is_boundary:
+            #         bvec[row_e] += -m_out * h_k
+            #
+            #     if not left_is_boundary:
+            #         A[row_e, idx_mface(k)] += -h_up
+            #     if not right_is_boundary:
+            #         A[row_e, idx_mface(k + 1)] += +h_k
 
-            def idx_mface(j):  # j=1..N-1
-                return 1 + N + (j - 1)
+            x = np.linalg.solve(A_mat, b_vec)
 
-            for k in range(N):
-                V_k = V[k]
-                rho_k = rho[k]
-                rhoP_k = rhoP[k]
-                rhoh_k = rhoh[k]
-                h_k = h[k]
-                h_up = h_in if k == 0 else h[k - 1]
-
-                # FV coefficients
-                a = V_k * rhoP_k
-                bb = V_k * rhoh_k
-                c = V_k * (h_k * rhoP_k - 1.0)
-                d = V_k * (h_k * rhoh_k + rho_k)
-
-                # Face indexing:
-                # left face is j=k   (0..N-1)  -> m_faces[k]
-                # right face is j=k+1 (1..N)   -> m_faces[k+1]
-                left_is_boundary = (k == 0)
-                right_is_boundary = (k == N - 1)
-
-                # ---------- Mass row ----------
-                # a dP + b dh = m_left - m_right
-                row_m = 2 * k
-                A[row_m, idx_dP] = a
-                A[row_m, idx_dh(k)] = bb
-
-                # RHS known boundary contributions
-                bvec[row_m] = (m_in if left_is_boundary else 0.0) - (m_out if right_is_boundary else 0.0)
-
-                # Unknown internal faces on LHS: -m_left + m_right
-                if not left_is_boundary:
-                    # left internal face index is j=k (1..N-1)
-                    A[row_m, idx_mface(k)] += -1.0
-                if not right_is_boundary:
-                    # right internal face index is j=k+1 (1..N-1)
-                    A[row_m, idx_mface(k + 1)] += +1.0
-
-                # ---------- Energy row ----------
-                # c dP + d dh = m_left*h_up - m_right*h_k + Q_into_ref
-                # => c dP + d dh - m_left*h_up + m_right*h_k = Q_into_ref
-                row_e = 2 * k + 1
-                A[row_e, idx_dP] = c
-                A[row_e, idx_dh(k)] = d
-
-                bvec[row_e] = Q_into_ref[k]
-                if left_is_boundary:
-                    bvec[row_e] += m_in * h_up
-                if right_is_boundary:
-                    bvec[row_e] += -m_out * h_k
-
-                if not left_is_boundary:
-                    A[row_e, idx_mface(k)] += -h_up
-                if not right_is_boundary:
-                    A[row_e, idx_mface(k + 1)] += +h_k
-
-            x = np.linalg.solve(A, bvec)
-
-            dPdt = float(x[idx_dP])
+            dPdt = float(x[0])
             dhdt = x[1:1 + N].copy()
 
-            m_faces = np.empty(N + 1, dtype=float)
-            m_faces[0] = m_in
-            m_faces[N] = m_out
-            m_faces[1:N] = x[1 + N:]  # m_face_1..m_face_{N-1}
+            #m_faces = np.empty(N + 1, dtype=float)
+            #m_faces[0] = m_in
+            #m_faces[N] = m_out
+            #m_faces[1:N] = x[1 + N:]  # m_face_1..m_face_{N-1}
+            m_faces = 0.0
 
             return dPdt, dhdt, m_faces
 
@@ -247,12 +282,9 @@ class Refrigerant:
         m_in = float(cfg_inlet.m_dot_ref)
 
         # Best practice: provide m_out from compressor coupling.
-        # Fallback: use last segment stored value, else assume m_out=m_in.
         (ixL, iyL) = path[-1]
         cfgL = cfg_grid[ixL][iyL]
-        m_out = float(getattr(cfg_inlet, "m_dot_out_ref", getattr(cfgL, "m_dot_ref", m_in)))
-        if not np.isfinite(m_out):
-            m_out = m_in
+        m_out = float(cfgL.m_dot_ref_out)
 
         # ----------------------------------------------------------
         # RHS
@@ -407,7 +439,7 @@ class Refrigerant:
             Tw_C = float(Tw_end[k] - 273.15)
 
             # Cell-centered mass flow for storage: average of adjacent faces
-            m_cell = 0.5 * (m_faces_end[k] + m_faces_end[k + 1])
+            #m_cell = 0.5 * (m_faces_end[k] + m_faces_end[k + 1])
 
             # Derived outputs
             T_ref_K = float(PropsSI("T", "P", P_end, "H", h_k, fluid))
@@ -422,6 +454,6 @@ class Refrigerant:
             cfg.p_ref = P_end
             cfg.h_ref = h_k
             cfg.T_ref = T_ref_C
-            cfg.m_dot_ref = float(m_cell)
+            #cfg.m_dot_ref = float(m_cell)
             cfg.x_ref = x_out
             cfg.T_tube = Tw_C
