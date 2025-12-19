@@ -3,14 +3,16 @@ import math
 from scipy.sparse import lil_matrix, csr_matrix
 from scipy.sparse.linalg import spsolve
 from Framework.core.corrolations import DK
-from CoolProp.HumidAirProp import HAPropsSI
+from CoolProp.HumidAirProp import HAPropsSI, HAProps_Aux
 
 class Frostmodell_Edge:
 
     @staticmethod
     def w_sat_coolprop(Tf_C: float, p_Pa: float) -> float:
         Tf_K = Tf_C + 273.15
-        return HAPropsSI("W", "T", Tf_K, "P", p_Pa, "R", 1.0)
+        p_ws, _units = HAProps_Aux("p_ws", Tf_K, p_Pa, 0.0)
+        return 0.621945 * p_ws / (p_Pa - p_ws)
+        #return HAPropsSI("W", "T", Tf_K, "P", p_Pa, "R", 1.0)
 
     @staticmethod
     def Nu_edge(cfg, geom, theta):
@@ -374,7 +376,9 @@ class Frostmodell_Finn_and_Tube:
     @staticmethod
     def w_sat_coolprop(Tf_C: float, p_Pa: float) -> float:
         Tf_K = Tf_C + 273.15
-        return HAPropsSI("W", "T", Tf_K, "P", p_Pa, "R", 1.0)
+        p_ws, _units = HAProps_Aux("p_ws", Tf_K, p_Pa, 0.0)
+        return 0.621945 * p_ws / (p_Pa - p_ws)
+        #return HAPropsSI("W", "T", Tf_K, "P", p_Pa, "R", 1.0)
 
     @staticmethod
     def rho_a_dry_local(Tf_C, p_Pa):
@@ -619,7 +623,7 @@ class Frostmodell_Finn_and_Tube:
             m_delta = m_fs - m_rho  # [kg/(m² s)]
         else:
             m_delta = 0.0
-            print(f"\033[31mNegative moisture mass flow detected, setting m_delta = 0!\033[0m")
+            #print(f"\033[31mNegative moisture mass flow detected, setting m_delta = 0!\033[0m")
 
         m_x0 = cfg.C * st.rho_ft[0]*(st.w_ft[0]-self.w_sat_coolprop(st.T_ft[0], cfg.p_a))*dx
 

@@ -67,14 +67,14 @@ class Air:
         T_out = self.T_from_h_w_C(h_out, w_out)
 
         # 4) enforce saturation (numerical safety)
-        wsat_out = self.w_sat(T_out, p_out)
-        if w_out > wsat_out:
+        #wsat_out = self.w_sat(T_out, p_out)
+        #if w_out > wsat_out:
             # clamp very slightly below saturation to avoid RH=1+ε
-            w_out = wsat_out * (1.0 - 1e-9)
+        #    w_out = wsat_out * (1.0 - 1e-9)
 
             # optional (recommended): make enthalpy consistent with the clamped w_out
             # by re-solving T_out from the same h_out and the adjusted w_out:
-            T_out = self.T_from_h_w_C(h_out, w_out)
+        #    T_out = self.T_from_h_w_C(h_out, w_out)
 
         # 5) RH from partial pressure ratio (no CoolProp call)
         pws = self.p_ws_buck_Pa(T_out)

@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path.cwd().parent))
 from Framework.core.config import CaseConfig, GridShape
 from Framework.core.geometry import FinnTubedHX
 from Framework.models import Frostmodell_V1
-from Framework.runtime.simulator import Simulator
+from Framework.runtime.simulator_V1 import Simulator
 from Framework.visualisation import plot
 from Framework.visualisation.read_from_csv import read_results_csv_json
 
@@ -50,11 +50,17 @@ geom = FinnTubedHX(
 gs = GridShape(
     t_end = 60.0,      # s endtime
     dt = 2.0,           # s time step
-    store_grid_every_x_it = 5,
+    store_grid_every_x_it = 10,
 
     nx = 100,
     nr = 100,
-    ntheta = 90
+    ntheta = 90,
+
+    #Model Setup
+    cal_steady_state = True,
+    cal_air = True,
+    cal_frost = True,
+    cal_ref = True
 )
 
 cfg = CaseConfig(
@@ -79,7 +85,8 @@ cfg = CaseConfig(
     T_ref = T_ref_in,     # °C tube temperature
     p_ref = p_ref_in,      # Pa Kältemitteldruck
     h_ref = h_ref_in,          # J/kg spezifische Enthalpie
-    m_dot_ref = 1e-4,      # kg/s Massenstrom am Inlet
+    m_dot_ref = 1.0e-5,      # kg/s Massenstrom am Inlet
+    m_dot_ref_out = 1.0e-5,      # kg/s Massenstrom am Outlet
     x_ref = x_in,           # Dampfqualität (0..1), NaN falls einphasig
 
     # ice data
@@ -200,6 +207,27 @@ fig, ax, Z_Ta = plot.plot_segment_field_grid(
     cmap="viridis"
 )
 
+labels_U = [f"[{ix},{iy}]" for ix in range(geom.n_seg_l) for iy in range(geom.n_seg_r)]
+U_air = data["U_from_air"]
+U_air = np.asarray(U_air)
+U_air_2d = U_air.reshape(U_air.shape[0], -1)
+
+U_ref = data["U_from_ref"]
+U_ref = np.asarray(U_ref)
+U_ref_2d = U_ref.reshape(U_ref.shape[0], -1)
+
+plot.plot_any(kind="time vs any",
+              x=data['t'], y=U_air_2d,
+              xlabel="Zeit [s]", ylabel="Wärmedurchgangskoeffizient [W/($m^2$K)]",
+              title=f"Wärmedurchgangskoeffizient aus Q_dot_air", marker=None)
+              #labels=labels_U)
+
+plot.plot_any(kind="time vs any",
+              x=data['t'], y=U_ref_2d,
+              xlabel="Zeit [s]", ylabel="Wärmedurchgangskoeffizient [W/($m^2$K)]",
+              title=f"Wärmedurchgangskoeffizient aus Q_dot_ref", marker=None)
+              #labels=labels_U)
+
 plot.plot_any(kind="time vs any",
               x=data['t'], y=data['mean_s_ft'],
               xlabel="Zeit [s]", ylabel="Frostdicke [m]",
@@ -216,10 +244,15 @@ plot.plot_any(kind="time vs any",
               title=f"Austrittstemperatur Kältemittel", marker=None)
 
 plot.plot_any(kind="time vs any",
+              x=data['t'], y=data['p_ref'],
+              xlabel="Zeit [s]", ylabel="Druck [Pa]",
+              title=f"Druck des Kältemittels", marker=None)
+
+plot.plot_any(kind="time vs any",
               x=data['t'], y=data['humidity'],
               xlabel="Zeit [s]", ylabel="Feuchtegehalt [kg/kg]",
               title=f"Feuchtgehalt entlang dem Luftstrom", marker=None,
-              labels=["Seg 1","Seg 2","Seg 3","Seg 4"])
+              labels=["Seg 1","Seg 2","Seg 3","Seg 4","Seg 5"])
 
 # Segment auswählen
 ix, iy = 0, 2

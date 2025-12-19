@@ -10,6 +10,7 @@ class FlatPlate:
 class FinnTubedHX:
     n_seg_l: float          # Anzahl Reihen in Flussrichtung der Luft
     n_seg_r: float          # Anzahl Reihen in Flussrichtung des Kältemittel inlet
+    stacks: int             # Anzahl der Stapel
     n_fin: float            # Number of fins (only for the plot)
     l_fin: float            # Length of the fins
     h_fin: float            # Height of the fins (usually h_fin=l_fin)

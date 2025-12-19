@@ -4,7 +4,7 @@ from Framework.runtime.state import SimState
 from Framework.runtime.recorder import ResultRecorder
 from Framework.runtime.initializer import init_fields
 from Framework.models.air_modell import Air
-from Framework.models.refrigerant_modell import RefGeomParams, Refrigerant
+from Framework.models.refrigerant_modell_V1 import RefGeomParams, Refrigerant
 import Framework.runtime.dynamic_models as dynamic_models
 
 import time
@@ -18,15 +18,15 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class Simulator:
-    def __init__(self, geom, cfg, fields=("t")):
-        self.rec = ResultRecorder(fields=fields, stream_path="sim_grid_log.jsonl")
+    def __init__(self, geom, cfg, stream_path: str | None = "sim_grid_log", fields=("t")):
+        self.rec = ResultRecorder(fields=fields, stream_path=f"{stream_path}.jsonl")
 
         A_flow = (((geom.d_tube_a/2)-geom.tube_thickness)**2) * np.pi
         L = geom.l_tube()
         A_inner = (geom.d_tube_a-2*geom.tube_thickness)*np.pi*L
         V_wall = (((geom.d_tube_a/2)**2)*np.pi - A_flow)*L
 
-        gp = RefGeomParams(
+        self.gp = RefGeomParams(
             A_flow  = A_flow,          # cross-section of one tube
             dx      = L,     # length per segment
             A_inner = A_inner,    # inner area per segment
@@ -37,7 +37,7 @@ class Simulator:
         )
 
         self.air = Air()
-        self.refrigerant = Refrigerant(geom,gp,cfg,geom.CP)
+        self.refrigerant = Refrigerant(geom,self.gp,cfg,geom.CP)
 
 
 
@@ -49,7 +49,7 @@ class Simulator:
         T_old = 1000.0
         T_outlet_air_mean_old = 1000.0
 
-        while (st_cond_1 > 1e-2 or st_cond_2 > 1e-2) and st_it <= 1000:
+        while (st_cond_1 > 1e-2 or st_cond_2 > 1e-2) and st_it <= 100:
             st_it += 1
             Q_seg_x0_list_steady = np.zeros((n_x, n_y), dtype=float)
 
@@ -105,6 +105,8 @@ class Simulator:
 
             print(f"Mean Tube T = {T_old} °C and Mean outlet air T = {T_outlet_air_mean_old} °C")
 
+            self.refrigerant.reset_integrator()
+
         return st_it, st_cond_1, st_cond_2
 
 
@@ -133,15 +135,17 @@ class Simulator:
         it = 0
         t0_start = time.perf_counter()
 
-        t_start_steady = time.perf_counter()
-        print("Calculating the initial condition...")
-        f = io.StringIO()
-        with redirect_stdout(f):
-            st_it, st_cond_1, st_cond_2 = self.steady_state_air_refrigerant(gs,geom,input_cfg,cfg_grid,st_grid,n_x,n_y,model_e,model_ft)
-        t_end_steady = time.perf_counter()
-        steady_time = t_end_steady - t_start_steady
-        print(f"Initial conditions calculated with after {st_it} iterations \n"
-              f"With residuals of {st_cond_1:.3e} and {st_cond_2:.3e} cycle time: {steady_time:.3f} s")
+        if gs.cal_steady_state:
+            t_start_steady = time.perf_counter()
+            print("Calculating the initial condition...")
+            f = io.StringIO()
+            with redirect_stdout(f):
+                st_it, st_cond_1, st_cond_2 = self.steady_state_air_refrigerant(gs,geom,input_cfg,cfg_grid,st_grid,n_x,n_y,model_e,model_ft)
+            t_end_steady = time.perf_counter()
+            steady_time = t_end_steady - t_start_steady
+            print(f"Initial conditions calculated with after {st_it} iterations \n"
+                  f"With residuals of {st_cond_1:.3e} and {st_cond_2:.3e} cycle time: {steady_time:.3f} s")
+            self.refrigerant.reset_integrator()
 
         while t <= gs.t_end:
             it += 1
@@ -163,17 +167,17 @@ class Simulator:
                 ix, iy = info["ix"], info["iy"]
                 parts = [f"Seg[{ix},{iy}]"]
 
-                # Edge / FT nur anzeigen, wenn berechnet (wie bisher – nur kompakter)
+                # Edge / FT nur anzeigen, wenn berechnet
                 if info["edge"] is not None:
                     iter_e, res_w_e, res_T_e, dt_e = info["edge"]
-                    parts.append(f"Edge(it={iter_e}, w={res_w_e:.3e}, T={res_T_e:.3e}, ct={dt_e:.3f}s)")
+                    parts.append(f"Edge(it={iter_e}, w={res_w_e:.3e}, T={res_T_e:.3e}, ct={dt_e:.3f} s)")
                 if info["ft"] is not None:
                     iter_ft, res_w_ft, res_T_ft, dt_ft = info["ft"]
-                    parts.append(f"FT(it={iter_ft}, w={res_w_ft:.3e}, T={res_T_ft:.3e}, ct={dt_ft:.3f}s)")
+                    parts.append(f"FT(it={iter_ft}, w={res_w_ft:.3e}, T={res_T_ft:.3e}, ct={dt_ft:.3f} s)")
 
-                # Air immer anzeigen (wie bisher)
+                # Air immer anzeigen
                 T_out, w_out, p_out = info["air"]
-                parts.append(f"Air(T={T_out:.2f}°C, w={w_out:.3e} kg/kg, P={p_out:.3e} Pa)")
+                parts.append(f"Air(T={T_out:.2f} °C, w={w_out:.3e} kg/kg, P={p_out:.3e} Pa)")
 
                 line = " | ".join(parts)
 
@@ -216,7 +220,7 @@ class Simulator:
                     RH_air_at_wall = cfg.w_amb / max(w_sat_wall, 1e-12)
 
                 RH_air_at_wall = max(0.0, min(1.0, RH_air_at_wall))
-                if RH_air_at_wall >= 0.98:
+                if RH_air_at_wall >= 0.99 and gs.cal_frost:
                     cfg.frost_condition = True
 
                 # ---------------- Updating the edge state ----------------
@@ -262,36 +266,37 @@ class Simulator:
                 # ---------------- Updating the air state ----------------
                 m_dot_a = input_cfg.m_dot / n_y
 
-                if cfg.frost_condition == True:
-                    if ix == 0:
-                        T_out, w_out, p_out = self.air.propagate_inplace(
-                            input_cfg, cfg, st.s_e[89], st, geom, m_dot_a, 0.0, 0.0, gs.dt
-                        )
+                if gs.cal_air:
+                    if cfg.frost_condition:
+                        if ix == 0:
+                            T_out, w_out, p_out = self.air.propagate_inplace(
+                                input_cfg, cfg, st.s_e[89], st, geom, m_dot_a, 0.0, 0.0, gs.dt
+                            )
+                        else:
+                            m_s_seg = model_ft_loc.segment_mass_flux_air_frost(cfg_grid[ix - 1][iy], geom, st_up, gs)
+                            Q_seg_fs, Q_seg_x0, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_grid[ix - 1][iy], geom, st_up, gs)
+                            T_out, w_out, p_out = self.air.propagate_inplace(
+                                cfg_grid[ix - 1][iy], cfg, st_up.s_ft, st_up, geom, m_dot_a, Q_seg_fs, m_s_seg, gs.dt
+                            )
+
+                        _, Q_seg_x0_n, _ = model_ft_loc.segment_heat_flux_air_frost(cfg, geom, st, gs)
+                        q_for_list = Q_seg_x0_n
                     else:
-                        m_s_seg = model_ft_loc.segment_mass_flux_air_frost(cfg_grid[ix - 1][iy], geom, st_up, gs)
-                        Q_seg_fs, Q_seg_x0, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_grid[ix - 1][iy], geom, st_up, gs)
-                        T_out, w_out, p_out = self.air.propagate_inplace(
-                            cfg_grid[ix - 1][iy], cfg, st_up.s_ft, st_up, geom, m_dot_a, Q_seg_fs, m_s_seg, gs.dt
-                        )
+                        if ix == 0:
+                            T_out, w_out, p_out = self.air.propagate_inplace(
+                                input_cfg, cfg, st.s_e[89], st, geom, m_dot_a, 0.0, 0.0, gs.dt
+                            )
+                        else:
+                            Q_seg_fs, Q_seg_x0, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_grid[ix - 1][iy], geom, st_up, gs)
+                            T_out, w_out, p_out = self.air.propagate_inplace(
+                                cfg_grid[ix - 1][iy], cfg, st_up.s_ft, st_up, geom, m_dot_a, Q_steady, 0.0, gs.dt
+                            )
 
-                    _, Q_seg_x0_n, _ = model_ft_loc.segment_heat_flux_air_frost(cfg, geom, st, gs)
-                    q_for_list = Q_seg_x0_n
+                        _, _, Q_steady_n = model_ft_loc.segment_heat_flux_air_frost(cfg, geom, st, gs)
+                        q_for_list = Q_steady_n
 
-                else:
-                    if ix == 0:
-                        T_out, w_out, p_out = self.air.propagate_inplace(
-                            input_cfg, cfg, st.s_e[89], st, geom, m_dot_a, 0.0, 0.0, gs.dt
-                        )
-                    else:
-                        Q_seg_fs, Q_seg_x0, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_grid[ix - 1][iy], geom, st_up, gs)
-                        T_out, w_out, p_out = self.air.propagate_inplace(
-                            cfg_grid[ix - 1][iy], cfg, st_up.s_ft, st_up, geom, m_dot_a, Q_steady, 0.0, gs.dt
-                        )
+                    info["air"] = (T_out, w_out, p_out)
 
-                    _, _, Q_steady_n = model_ft_loc.segment_heat_flux_air_frost(cfg, geom, st, gs)
-                    q_for_list = Q_steady_n
-
-                info["air"] = (T_out, w_out, p_out)
                 return iy, q_for_list, info
 
             # --- Parallel über iy, sequenziell über ix ---
@@ -317,23 +322,92 @@ class Simulator:
 
 
             # Pushing the data ---------------------------------------------------------------------------------------------
-            # Beispiel für ein paar globale Grössen:
             path_ref = geom.build_connection_path(geom.CP)
+            pos_of = {seg: k for k, seg in enumerate(path_ref)}
+            (x0, y0) = path_ref[0]
             (x_end, y_end) = path_ref[-1]
 
-            T_outlet_air_mean = np.mean([cfg_grid[-1][iy].T_a
-                                 for iy in range(n_y)])
-            T_outlet_ref = cfg_grid[x_end][y_end].T_ref
+            # Calculation of the heat transfer coefficient
+            # --- Inlet/Outlet ---
+            T_inlet_air_mean = np.mean([cfg_grid[0][iy].T_a for iy in range(n_y)])
+            T_outlet_air_mean = np.mean([cfg_grid[-1][iy].T_a for iy in range(n_y)])
+
+            # --- Massflow air one row ---
+            m_dot_dry_y = cfg.m_dot / n_y
+
+            # --- Refrigerant In/Out ---
+            T_ref_in = cfg_grid[x0][y0].T_ref
+            T_ref_out = cfg_grid[x_end][y_end].T_ref
+
+            Q_air = np.full((n_x, n_y), np.nan, dtype=float)
+            Q_ref = np.full((n_x, n_y), np.nan, dtype=float)
+            dTlm = np.full((n_x, n_y), np.nan, dtype=float)
+            U_from_air = np.full((n_x, n_y), np.nan, dtype=float)
+            U_from_ref = np.full((n_x, n_y), np.nan, dtype=float)
+
+            for ix in range(n_x):
+                for iy in range(n_y):
+                    if ix == 0:
+                        T_air_in = input_cfg.T_a
+                        w_air_in = input_cfg.w_amb
+                    else:
+                        T_air_in = cfg_grid[ix - 1][iy].T_a
+                        w_air_in = cfg_grid[ix - 1][iy].w_amb
+
+                    T_air_out = cfg_grid[ix][iy].T_a
+                    w_air_out = cfg_grid[ix][iy].w_amb
+
+                    h_air_in = HAPropsSI("H", "T", T_air_in + 273.15, "P", cfg_grid[ix][iy].p_a, "W", w_air_in)
+                    h_air_out = HAPropsSI("H", "T", T_air_out + 273.15, "P", cfg_grid[ix][iy].p_a, "W", w_air_out)
+
+                    Q_seg_air = m_dot_dry_y * (h_air_in - h_air_out)  # [W] positiv: Luft -> HX
+                    Q_air[ix, iy] = Q_seg_air
+
+                    k = pos_of.get((ix, iy), None)
+
+                    if k == 0:
+                        # Falls du eine Ref-Inlet-Temperatur im cfg hast, hier einsetzen:
+                        T_ref_in = cfg_grid[ix][iy].T_ref
+                    else:
+                        (px, py) = path_ref[k - 1]
+                        T_ref_in = cfg_grid[px][py].T_ref
+
+                    T_ref_out = cfg_grid[ix][iy].T_ref
+                    T_wall = cfg_grid[ix][iy].T_tube
+
+                    area_ref = self.gp.A_inner
+                    Q_seg_ref = self.refrigerant.h_int_corr() * area_ref * (T_wall - T_ref_out)
+                    Q_ref[ix, iy] = Q_seg_ref
+
+                    # --- lokales LMTD ---
+                    dT1 = T_air_in - T_ref_out
+                    dT2 = T_air_out - T_ref_in
+                    with np.errstate(divide="ignore", invalid="ignore"):
+                        dT_lm = (dT1 - dT2) / np.log(dT1 / dT2)
+                    dTlm[ix, iy] = dT_lm
+
+                    area_air = geom.A_one_segment()
+
+                    U_from_air[ix,iy] = Q_seg_air/(area_air*dT_lm)
+                    U_from_ref[ix, iy] = Q_seg_ref / (area_ref * dT_lm)
+
+
+
             mean_s_ft = np.mean([st_grid[ix][iy].s_ft
                                  for ix in range(n_x)
                                  for iy in range(n_y)])
             humid_l = np.array([seg[0].w_amb for seg in cfg_grid])
 
+            p_ref = cfg_grid[x0][y0].p_ref
+
             # einfache Zeitsignale im Speicher halten
             self.rec.push(t=t,
+                          U_from_air=U_from_air,
+                          U_from_ref=U_from_ref,
                           mean_s_ft=mean_s_ft,
                           T_out_air_mean=T_outlet_air_mean,
-                          T_out_ref=T_outlet_ref,
+                          T_out_ref=T_ref_out,
+                          p_ref = p_ref,
                           humidity=humid_l)
 
             # Push grid snapshot
@@ -348,17 +422,18 @@ class Simulator:
 
         # Updating the refrigerant state -------------------------------------------------------------------------------
 
-            print('Calculating the refrigerant state for the next time step in all segments...')
+            if gs.cal_ref:
+                print('Calculating the refrigerant state for the next time step in all segments...')
 
-            self.refrigerant.update_all_segments(
-                input_cfg,  # inlet BC
-                cfg_grid,
-                st_grid,
-                geom,
-                Q_seg_x0_list,  # this is Q_f per segment
-                time=t,
-                dt=gs.dt,
-            )
+                self.refrigerant.update_all_segments(
+                    input_cfg,  # inlet BC
+                    cfg_grid,
+                    st_grid,
+                    geom,
+                    Q_seg_x0_list,  # this is Q_f per segment
+                    time=t,
+                    dt=gs.dt,
+                )
 
             t_iteration_end = time.perf_counter()
             time_iteration = t_iteration_end - t_iteration_start

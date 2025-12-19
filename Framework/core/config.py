@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import numpy as np
 
 @dataclass(frozen=False)
 class CaseConfig:
@@ -23,7 +24,8 @@ class CaseConfig:
     T_ref: float        # °C refrigerant temperature
     p_ref: float        # Pa Refrigerant Pressure
     h_ref: float        # J/kg specific Enthalpie
-    m_dot_ref: float    # kg/s Massflow Refrigerant at the inlet and outlet
+    m_dot_ref: float    # kg/s Massflow Refrigerant at the inlet
+    m_dot_ref_out: float   # kg/s Massflow Refrigerant at the outlet
     x_ref: float        # [-]
 
     # ice data
@@ -42,3 +44,34 @@ class GridShape:
     nx: int = 100
     nr: int = 100
     ntheta: int = 90
+
+    cal_steady_state: bool = True
+    cal_air: bool = True
+    cal_frost: bool = True
+    cal_ref: bool = True
+
+@dataclass(frozen=False)
+class HeatPump:
+    #condenser
+    N_cond: float
+    p_ref_cond: float
+    h_ref_cond: np.ndarray
+    T_wall: np.ndarray
+    T_water: np.ndarray
+
+    A_flow_cond: float
+    dx_cond: float
+    A_wall: float
+    A_plate: float
+
+    #water
+    T_in_water: float
+    m_water: float
+    c_water: float
+    rho_water: float
+
+    #Compressor
+    def RPM(self,t):
+        return min(1500,100*t)
+
+
