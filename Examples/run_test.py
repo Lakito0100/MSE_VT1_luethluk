@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path.cwd().parent))
 from Framework.core.config import CaseConfig, GridShape
 from Framework.core.geometry import FinnTubedHX
 from Framework.models import Frostmodell_V1
-from Framework.runtime.simulator import Simulator
+from Framework.runtime.simulator_V1 import Simulator
 from Framework.visualisation import plot
 from Framework.visualisation.read_from_csv import read_results_csv_json
 

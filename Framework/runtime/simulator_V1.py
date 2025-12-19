@@ -4,7 +4,7 @@ from Framework.runtime.state import SimState
 from Framework.runtime.recorder import ResultRecorder
 from Framework.runtime.initializer import init_fields
 from Framework.models.air_modell import Air
-from Framework.models.refrigerant_modell import RefGeomParams, Refrigerant
+from Framework.models.refrigerant_modell_V1 import RefGeomParams, Refrigerant
 import Framework.runtime.dynamic_models as dynamic_models
 
 import time
@@ -18,8 +18,8 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class Simulator:
-    def __init__(self, geom, cfg, fields=("t")):
-        self.rec = ResultRecorder(fields=fields, stream_path="sim_grid_log.jsonl")
+    def __init__(self, geom, cfg, stream_path: str | None = "sim_grid_log", fields=("t")):
+        self.rec = ResultRecorder(fields=fields, stream_path=f"{stream_path}.jsonl")
 
         A_flow = (((geom.d_tube_a/2)-geom.tube_thickness)**2) * np.pi
         L = geom.l_tube()
@@ -49,7 +49,7 @@ class Simulator:
         T_old = 1000.0
         T_outlet_air_mean_old = 1000.0
 
-        while (st_cond_1 > 1e-2 or st_cond_2 > 1e-2) and st_it <= 1000:
+        while (st_cond_1 > 1e-2 or st_cond_2 > 1e-2) and st_it <= 100:
             st_it += 1
             Q_seg_x0_list_steady = np.zeros((n_x, n_y), dtype=float)
 
@@ -220,7 +220,7 @@ class Simulator:
                     RH_air_at_wall = cfg.w_amb / max(w_sat_wall, 1e-12)
 
                 RH_air_at_wall = max(0.0, min(1.0, RH_air_at_wall))
-                if RH_air_at_wall >= 0.98 and gs.cal_frost:
+                if RH_air_at_wall >= 0.99 and gs.cal_frost:
                     cfg.frost_condition = True
 
                 # ---------------- Updating the edge state ----------------
