@@ -1,8 +1,7 @@
 from time import perf_counter
 from dataclasses import dataclass
 import numpy as np
-from scipy.integrate import solve_ivp
-from numpy.linalg import solve
+from scipy.integrate import solve_ivp, BDF
 import CoolProp.CoolProp as CP
 from CoolProp.CoolProp import PropsSI
 
@@ -39,6 +38,11 @@ class Refrigerant:
         self.AS = CP.AbstractState("HEOS", self.fluid)  # or "BICUBIC&HEOS", "TTSE&HEOS", etc.
         self.connection_path = geometry.build_connection_path(variant=path_variant)
 
+        self._bdf = None
+        self._bdf_dim = None
+        self._rhs_ptr = None
+        self._rhs_wrapper = lambda t, y: self._rhs_ptr(t, y)
+
 
     def rho_and_derivs(self, p_i, h_i, x_i):
         """
@@ -72,8 +76,7 @@ class Refrigerant:
     # ------------------------------------------------------------------
     # Lokale Korrelation für h_int (Wärmeübergang Wand ↔ Kältemittel)
     # ------------------------------------------------------------------
-    def h_int_corr(self,
-                    x:float):
+    def h_int_corr(self):
         return 5000.0
 
     def update_all_segments(
@@ -264,7 +267,7 @@ class Refrigerant:
         # Pressure is global: pick inlet if available, else first segment
         (ix0, iy0) = path[0]
         cfg0 = cfg_grid[ix0][iy0]
-        P0 = float(getattr(cfg_inlet, "p_ref", cfg0.p_ref))
+        P0 = float(cfg0.p_ref)
 
         for k, (ix, iy) in enumerate(path):
             cfg = cfg_grid[ix][iy]
@@ -276,11 +279,10 @@ class Refrigerant:
         y0 = np.concatenate([np.array([P0]), h0, Tw0])
 
         # ----------------------------------------------------------
-        # Boundary mass flows (must come from cycle coupling)
+        # Boundary mass flows
         # ----------------------------------------------------------
         m_in = float(cfg_inlet.m_dot_ref)
 
-        # Best practice: provide m_out from compressor coupling.
         (ixL, iyL) = path[-1]
         cfgL = cfg_grid[ixL][iyL]
         m_out = float(cfgL.m_dot_ref_out)
@@ -322,7 +324,7 @@ class Refrigerant:
                 T_ref_K = float(PropsSI("T", "P", P, "H", h_k, fluid))
 
                 # Internal HTC
-                h_int_k = float(self.h_int_corr(x=x_k))
+                h_int_k = float(self.h_int_corr())
 
                 # Heat rate into refrigerant (your convention)
                 Q_ref_k = h_int_k * gp.A_inner * (Tw[k] - T_ref_K)  # [W]
@@ -357,23 +359,67 @@ class Refrigerant:
         t0 = float(time)
         t1 = float(time + dt)
 
-        cycl_t0_ref = perf_counter()
-        sol = solve_ivp(
-            rhs,
-            (t0, t1),
-            y0,
-            method="BDF",
-            rtol=1e-6,
-            atol=1e-8,
-            max_step=dt,
+        # 1) Aktuellen RHS "einstecken" (Randbedingungen/ Q_seg_list etc. dieser Makro-Stufe)
+        self._rhs_ptr = rhs
+
+        # 2) Solver einmalig initialisieren (oder hart neu starten, falls Dimension/Time nicht passt)
+        need_restart = (
+                self._bdf is None
+                or self._bdf_dim != y0.size
+                or abs(float(self._bdf.t) - t0) > 1e-12
         )
+
+        # Optional: wenn cfg_grid extern geändert wurde und nicht zu solver.y passt -> restart
+        if (not need_restart) and (np.max(np.abs(self._bdf.y - y0)) > 1e-6):
+            need_restart = True
+            print("\033[93mRestarting the solver...\033[0m")
+
+        if need_restart:
+            self._bdf = BDF(
+                fun=self._rhs_wrapper,
+                t0=t0,
+                y0=y0,
+                t_bound=np.inf,  # wir steuern das Stoppen selbst über max_step + while-loop
+                rtol=1e-6,
+                atol=1e-8,
+                max_step=np.inf
+            )
+            self._bdf_dim = y0.size
+
+        # 3) Bis t1 vorwärts integrieren, ohne über t1 hinaus zu gehen
+        cycl_t0_ref = perf_counter()
+        inner_steps = 0
+
+        # kleine Toleranz gegen Float-Rundung
+        while self._bdf.status == "running" and self._bdf.t < t1 - 1e-15:
+            dt_rem = t1 - float(self._bdf.t)
+            # verhindere Overshoot über das Ende des Makroschritts
+            self._bdf.max_step = dt_rem
+            msg = self._bdf.step()
+            inner_steps += 1
+            if self._bdf.status == "failed":
+                raise RuntimeError(f"Refrigerant ODE solver failed: {msg}")
+
+        # End state (genau der aktuelle Zustand des persistenten Solvers)
+        y_end = self._bdf.y.copy()
+
+        # cycl_t0_ref = perf_counter()
+        # sol = solve_ivp(
+        #     rhs,
+        #     (t0, t1),
+        #     y0,
+        #     method="BDF",
+        #     rtol=1e-6,
+        #     atol=1e-8,
+        #     max_step=dt,
+        # )
         cycl_t1_ref = perf_counter()
 
-        if not sol.success:
-            raise RuntimeError(f"Refrigerant ODE solver failed: {sol.message}")
+        # if not sol.success:
+        #     raise RuntimeError(f"Refrigerant ODE solver failed: {sol.message}")
 
         # End state
-        y_end = sol.y[:, -1]
+        #y_end = sol.y[:, -1]
         P_end = float(y_end[0])
         h_end = y_end[1:1 + N]
         Tw_end = y_end[1 + N:1 + 2 * N]
@@ -416,7 +462,8 @@ class Refrigerant:
         #)
 
         # Console output
-        n_inner = len(sol.t) - 1
+        #n_inner = len(sol.t) - 1
+        n_inner = inner_steps
         T_out0_K = float(PropsSI("T", "P", P_end, "H", float(h_end[0]), fluid))
         T_out0_C = T_out0_K - 273.15
         mean_Tw_C = float(np.mean(Tw_end) - 273.15)
@@ -456,3 +503,7 @@ class Refrigerant:
             #cfg.m_dot_ref = float(m_cell)
             cfg.x_ref = x_out
             cfg.T_tube = Tw_C
+
+
+    def reset_integrator(self):
+        self._bdf = None
