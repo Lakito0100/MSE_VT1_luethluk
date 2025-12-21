@@ -36,6 +36,7 @@ class Simulator:
             dp_ref_seg = 0.0  # or just 0.0 for now
         )
 
+        self.HP = HP
         self.air = Air()
         self.refrigerant = Refrigerant(geom,self.gp,cfg,HP,geom.CP)
 
@@ -124,7 +125,7 @@ class Simulator:
 
                 info = {"ix": ix, "iy": iy, "edge": None, "ft": None, "air": None, "warn": [], "err": []}
 
-                # ---------------- Frost condition (unverändert) ----------------
+                # ---------------- Frost condition ----------------
                 try:
                     RH_air_at_wall = HAPropsSI("R",
                                                "T", cfg.T_tube + 273.15,
@@ -200,6 +201,8 @@ class Simulator:
                         _, Q_seg_x0_n, _ = model_ft_loc.segment_heat_flux_air_frost(cfg, geom, st, gs)
                         q_for_list = Q_seg_x0_n
                     else:
+                        st.T_e[:] = cfg.T_tube
+                        st.T_ft[:] = cfg.T_tube
                         if ix == 0:
                             T_out, w_out, p_out = self.air.propagate_inplace(
                                 input_cfg, cfg, st.s_e[89], st, geom, m_dot_a, 0.0, 0.0, gs.dt
@@ -249,68 +252,74 @@ class Simulator:
             # --- Inlet/Outlet ---
             T_inlet_air_mean = np.mean([cfg_grid[0][iy].T_a for iy in range(n_y)])
             T_outlet_air_mean = np.mean([cfg_grid[-1][iy].T_a for iy in range(n_y)])
-
-            # --- Massflow air one row ---
-            m_dot_dry_y = cfg.m_dot / n_y
-
-            # --- Refrigerant In/Out ---
-            T_ref_in = cfg_grid[x0][y0].T_ref
+            #
+            ## --- Massflow air one row ---
+            #m_dot_dry_y = cfg.m_dot / n_y
+            #
+            ## --- Refrigerant In/Out ---
+            #T_ref_in = cfg_grid[x0][y0].T_ref
             T_ref_out = cfg_grid[x_end][y_end].T_ref
+            #
+            #Q_air = np.full((n_x, n_y), np.nan, dtype=float)
+            #Q_ref = np.full((n_x, n_y), np.nan, dtype=float)
+            #dTlm = np.full((n_x, n_y), np.nan, dtype=float)
+            #U_from_air = np.full((n_x, n_y), np.nan, dtype=float)
+            #U_from_ref = np.full((n_x, n_y), np.nan, dtype=float)
+            #
+            #for ix in range(n_x):
+            #    for iy in range(n_y):
+            #        if ix == 0:
+            #            T_air_in = input_cfg.T_a
+            #            w_air_in = input_cfg.w_amb
+            #        else:
+            #            T_air_in = cfg_grid[ix - 1][iy].T_a
+            #            w_air_in = cfg_grid[ix - 1][iy].w_amb
+            #
+            #        T_air_out = cfg_grid[ix][iy].T_a
+            #        w_air_out = cfg_grid[ix][iy].w_amb
+            #
+            #        h_air_in = HAPropsSI("H", "T", T_air_in + 273.15, "P", cfg_grid[ix][iy].p_a, "W", w_air_in)
+            #        h_air_out = HAPropsSI("H", "T", T_air_out + 273.15, "P", cfg_grid[ix][iy].p_a, "W", w_air_out)
+            #
+            #        Q_seg_air = m_dot_dry_y * (h_air_in - h_air_out)  # [W] positiv: Luft -> HX
+            #        Q_air[ix, iy] = Q_seg_air
+            #
+            #        k = pos_of.get((ix, iy), None)
+            #
+            #        if k == 0:
+            #            # Falls du eine Ref-Inlet-Temperatur im cfg hast, hier einsetzen:
+            #            T_ref_in_k = cfg_grid[ix][iy].T_ref
+            #        else:
+            #            (px, py) = path_ref[k - 1]
+            #            T_ref_in_k = cfg_grid[px][py].T_ref
+            #
+            #        T_ref_out_k = cfg_grid[ix][iy].T_ref
+            #        T_wall = cfg_grid[ix][iy].T_tube
+            #
+            #        area_ref = self.gp.A_inner
+            #        Q_seg_ref = self.refrigerant.h_int_corr() * area_ref * (T_wall - T_ref_out_k)
+            #        Q_ref[ix, iy] = Q_seg_ref
+            #
+            #        # --- lokales LMTD ---
+            #        dT1 = T_air_in - T_ref_out_k
+            #        dT2 = T_air_out - T_ref_in_k
+            #        with np.errstate(divide="ignore", invalid="ignore"):
+            #            dT_lm = (dT1 - dT2) / np.log(dT1 / dT2)
+            #        dTlm[ix, iy] = dT_lm
+            #
+            #        area_air = geom.A_one_segment()
+            #
+            #        with np.errstate(divide="ignore", invalid="ignore"):
+            #            U_from_air[ix,iy] = Q_seg_air/(area_air*dT_lm)
+            #            U_from_ref[ix, iy] = Q_seg_ref / (area_ref * dT_lm)
 
-            Q_air = np.full((n_x, n_y), np.nan, dtype=float)
-            Q_ref = np.full((n_x, n_y), np.nan, dtype=float)
-            dTlm = np.full((n_x, n_y), np.nan, dtype=float)
-            U_from_air = np.full((n_x, n_y), np.nan, dtype=float)
-            U_from_ref = np.full((n_x, n_y), np.nan, dtype=float)
+            #Calculating the COP
+            W_comp = self.HP.W_comp
+            Q_cond = self.HP.Q_cond
+            Q_evap = self.HP.Q_evap
 
-            for ix in range(n_x):
-                for iy in range(n_y):
-                    if ix == 0:
-                        T_air_in = input_cfg.T_a
-                        w_air_in = input_cfg.w_amb
-                    else:
-                        T_air_in = cfg_grid[ix - 1][iy].T_a
-                        w_air_in = cfg_grid[ix - 1][iy].w_amb
-
-                    T_air_out = cfg_grid[ix][iy].T_a
-                    w_air_out = cfg_grid[ix][iy].w_amb
-
-                    h_air_in = HAPropsSI("H", "T", T_air_in + 273.15, "P", cfg_grid[ix][iy].p_a, "W", w_air_in)
-                    h_air_out = HAPropsSI("H", "T", T_air_out + 273.15, "P", cfg_grid[ix][iy].p_a, "W", w_air_out)
-
-                    Q_seg_air = m_dot_dry_y * (h_air_in - h_air_out)  # [W] positiv: Luft -> HX
-                    Q_air[ix, iy] = Q_seg_air
-
-                    k = pos_of.get((ix, iy), None)
-
-                    if k == 0:
-                        # Falls du eine Ref-Inlet-Temperatur im cfg hast, hier einsetzen:
-                        T_ref_in = cfg_grid[ix][iy].T_ref
-                    else:
-                        (px, py) = path_ref[k - 1]
-                        T_ref_in = cfg_grid[px][py].T_ref
-
-                    T_ref_out = cfg_grid[ix][iy].T_ref
-                    T_wall = cfg_grid[ix][iy].T_tube
-
-                    area_ref = self.gp.A_inner
-                    Q_seg_ref = self.refrigerant.h_int_corr() * area_ref * (T_wall - T_ref_out)
-                    Q_ref[ix, iy] = Q_seg_ref
-
-                    # --- lokales LMTD ---
-                    dT1 = T_air_in - T_ref_out
-                    dT2 = T_air_out - T_ref_in
-                    with np.errstate(divide="ignore", invalid="ignore"):
-                        dT_lm = (dT1 - dT2) / np.log(dT1 / dT2)
-                    dTlm[ix, iy] = dT_lm
-
-                    area_air = geom.A_one_segment()
-
-                    with np.errstate(divide="ignore", invalid="ignore"):
-                        U_from_air[ix,iy] = Q_seg_air/(area_air*dT_lm)
-                        U_from_ref[ix, iy] = Q_seg_ref / (area_ref * dT_lm)
-
-
+            COP_cold = Q_evap/W_comp
+            COP_warm = Q_cond/W_comp
 
             mean_s_ft = np.mean([st_grid[ix][iy].s_ft
                                  for ix in range(n_x)
@@ -321,8 +330,8 @@ class Simulator:
 
             # einfache Zeitsignale im Speicher halten
             self.rec.push(t=t,
-                          U_from_air=U_from_air,
-                          U_from_ref=U_from_ref,
+                          COP_cold=COP_cold,
+                          COP_warm=COP_warm,
                           mean_s_ft=mean_s_ft,
                           T_out_air_mean=T_outlet_air_mean,
                           T_out_ref=T_ref_out,

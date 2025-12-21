@@ -70,7 +70,13 @@ class HeatPump:
     c_water: float
     rho_water: float
 
+    # Heat flows
+    Q_cond: float = 0.0
+    Q_evap: float = 0.0
+
     #Compressor
+    W_comp: float = 0.001
+
     def RPM(self,t):
         return min(1500,100*t)
 
