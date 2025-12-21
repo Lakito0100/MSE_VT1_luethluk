@@ -22,7 +22,7 @@ def init_fields(cfg, st, gs):
 
     # Initializing finn and tube domain
     st.T_ft = np.zeros(gs.nx, dtype=float)
-    st.T_ft[:] = cfg.T_tube # mabe not correct ????
+    st.T_ft[:] = cfg.T_tube
     st.rho_ft = np.zeros(gs.nx, dtype=float)
     st.rho_ft[:] = 25.0 # Define initial density
     st.w_ft = np.zeros(gs.nx, dtype=float)

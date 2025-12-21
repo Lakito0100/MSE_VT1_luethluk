@@ -118,6 +118,8 @@ class Refrigerant:
         rho = PropsSI("D", "P", pi, "H", hi, self.fluid)
         ho = hi + (h_is - hi) / eta_is
         m = RPM / 60 * Vd * eta_v * rho
+
+        self.HP.W_comp = m * (ho-hi)
         return m, ho
 
     def update_all_segments(
@@ -198,88 +200,64 @@ class Refrigerant:
         #
         #     return dPdt, dhdt, dT_walldt, dT_waterdt
 
-        def solve_dp_dh_condenser(P, h, T, T_in_water, h_in, m_in, m_out, m_water,
-                                  Q_into_ref, Q_wall_water, V, M_water, M_wall, rho, rhoP, rhoh):
+        def solve_dp_dh_condenser(P, h, T, T_in_water, h_in, m_in, m_out, m_water, Q_into_ref, Q_wall_water, V, M_water,
+                                  M_wall, rho, rhoP, rhoh):
 
-            h = np.asarray(h).ravel()
-            T = np.asarray(T).ravel()
-            V = np.asarray(V).ravel()
-            rho = np.asarray(rho).ravel()
-            rhoP = np.asarray(rhoP).ravel()
-            rhoh = np.asarray(rhoh).ravel()
-            Q_into_ref = np.asarray(Q_into_ref).ravel()
-            Q_wall_water = np.asarray(Q_wall_water).ravel()
-            M_wall = np.asarray(M_wall).ravel()
-            M_water = np.asarray(M_water).ravel()
+             a = V * rhoP
+             b = V * rhoh
+             c = V*(h*rhoP - 1.0)
+             d = V*(h*rhoh + rho)
 
-            N = h.size
+             A_mat = np.zeros((3 * N_condenser + 1, 3 * N_condenser + 1))
+             b_vec = np.zeros((3 * N_condenser + 1,))
 
-            # --- coefficients
-            a = V * rhoP
-            b = V * rhoh
-            c = V * (h * rhoP - 1.0)
-            d = V * (h * rhoh + rho)
+             # --- [1] Total Mass and Energy balances ---
+             idx_v = np.arange(0, N_condenser + 1)
+             # Mass
+             A_mat[0, idx_v[0]] = np.sum(a)
+             A_mat[0, idx_v[1:]] = b
+             b_vec[0] = m_in - m_out
+             # Energy
+             A_mat[1, idx_v[0]] = np.sum(c)
+             A_mat[1, idx_v[1:]] = d
+             b_vec[1] = m_in * h_in - m_out * h[-1] + np.sum(Q_into_ref)
 
-            # Unknown vector:
-            # x = [dPdt, dhdt(1..N), dT_walldt(1..N), dT_waterdt(1..N)]
-            A_mat = np.zeros((3 * N + 1, 3 * N + 1))
-            b_vec = np.zeros((3 * N + 1,))
+             # --- [2] Energy balances ---
+             A_mat[2, 0] = c[0] - a[0] * h[0]
+             A_mat[2, 1] = d[0] - b[0] * h[0]
+             b_vec[2] = m_in * (h_in - h[0]) + Q_into_ref[0]
+             row_e = np.arange(3, N_condenser + 1)
+             A_mat[row_e, 0] = c[1:-1] - a[1:-1] * h[1:-1] - (h[1:-1] - h[:-2]) * np.cumsum(a[:N_condenser - 2])
+             A_mat[row_e, np.arange(2,N_condenser)] = d[1:-1] - b[1:-1] * h[1:-1]
+             b_vec[row_e] = m_in * (h[:-2] - h[1:-1]) + Q_into_ref[1:-1]
+             delta_h = h[1:-1] - h[:-2]
+             b_broadcast = b[np.newaxis, :N_condenser - 1]
+             delta_h_broadcast = delta_h[:, np.newaxis]
+             lower_tri = np.tril(np.ones((N_condenser - 2,N_condenser - 1)))
+             fill_vals = delta_h_broadcast * b_broadcast * lower_tri
+             A_mat[row_e[:, None], np.arange(1,N_condenser)] += fill_vals
 
-            iP = 0
-            ih = slice(1, N + 1)
-            iw = slice(N + 1, 2 * N + 1)
-            isw = slice(2 * N + 1, 3 * N + 1)
+             # --- [3] Wall Energy balances ---
+             row_w = np.arange(N_condenser + 1, 2 * N_condenser + 1)
+             col_w = np.arange(N_condenser + 1, 2 * N_condenser + 1)
+             A_mat[row_w, col_w] = M_wall * self.geometry.c_solid
+             b_vec[row_w] = (-Q_into_ref) - Q_wall_water
 
-            # --- [1] Total Mass and Energy balances (refrigerant block)
-            A_mat[0, iP] = np.sum(a)
-            A_mat[0, ih] = b
-            b_vec[0] = m_in - m_out
+             # --- [4] Secondary Fluid Energy balances ---
+             row_s = np.arange(2 * N_condenser + 1, 3 * N_condenser + 1)
+             col_s = np.arange(2 * N_condenser + 1, 3 * N_condenser + 1)
+             A_mat[row_s, col_s] = M_water * HP.c_water
+             b_vec[row_s[:-1]] = m_water * HP.c_water * (T[1:] - T[:-1]) + Q_wall_water[:-1]
+             b_vec[row_s[-1]] = m_water * HP.c_water * (T_in_water - T[-1]) + Q_wall_water[-1]
 
-            A_mat[1, iP] = np.sum(c)
-            A_mat[1, ih] = d
-            b_vec[1] = m_in * h_in - m_out * h[-1] - np.sum(Q_into_ref)
+             x = np.linalg.solve(A_mat, b_vec)
 
-            # --- [2] Local energy balances (refrigerant block)
-            A_mat[2, iP] = c[0] - a[0] * h[0]
-            A_mat[2, 1] = d[0] - b[0] * h[0]
-            b_vec[2] = m_in * (h_in - h[0]) - Q_into_ref[0]
+             dPdt = float(x[0])
+             dhdt = x[1:1 + N_condenser].copy()
+             dT_walldt = x[N_condenser+1:2*N_condenser+1].copy()
+             dT_waterdt = x[2*N_condenser+1:3*N_condenser+1].copy()
 
-            row_e = np.arange(3, N + 1)
-            if N > 2:
-                A_mat[row_e, iP] = (
-                        c[1:-1] - a[1:-1] * h[1:-1]
-                        - (h[1:-1] - h[:-2]) * np.cumsum(a[:N - 2])
-                )
-                A_mat[row_e, np.arange(2, N)] = d[1:-1] - b[1:-1] * h[1:-1]
-                b_vec[row_e] = m_in * (h[:-2] - h[1:-1]) - Q_into_ref[1:-1]
-
-                delta_h = h[1:-1] - h[:-2]
-                fill_vals = (
-                        delta_h[:, None]
-                        * b[None, :N - 1]
-                        * np.tril(np.ones((N - 2, N - 1)))
-                )
-                A_mat[row_e[:, None], np.arange(1, N)] += fill_vals
-
-            # --- [3] Wall energy balances (wall block)
-            row_w = np.arange(N + 1, 2 * N + 1)
-            A_mat[row_w, row_w] = M_wall * self.geometry.c_solid
-            b_vec[row_w] = Q_into_ref - Q_wall_water
-
-            # --- [4] Secondary fluid energy balances (water block)
-            row_s = np.arange(2 * N + 1, 3 * N + 1)
-            A_mat[row_s, row_s] = M_water * HP.c_water
-            b_vec[row_s[:-1]] = m_water * HP.c_water * (T[1:] - T[:-1]) + Q_wall_water[:-1]
-            b_vec[row_s[-1]] = m_water * HP.c_water * (T_in_water - T[-1]) + Q_wall_water[-1]
-
-            x = np.linalg.solve(A_mat, b_vec)
-
-            dPdt = float(x[iP])
-            dhdt = x[ih].copy()
-            dT_walldt = x[iw].copy()
-            dT_waterdt = x[isw].copy()
-
-            return dPdt, dhdt, dT_walldt, dT_waterdt
+             return dPdt, dhdt, dT_walldt, dT_waterdt
 
         def solve_dp_dh_evaporator(P, h, h_in, m_in, m_out, Q_into_ref, V, rho, rhoP, rhoh):
             """
@@ -350,8 +328,8 @@ class Refrigerant:
 
         for i in range(N_condenser):
             h0_cond[i] = HP.h_ref_cond[i]
-            T0_wall[i] = HP.T_wall[i]
-            T0_water[i] = HP.T_water[i]
+            T0_wall[i] = HP.T_wall[i] + 273.15
+            T0_water[i] = HP.T_water[i] + 273.15
 
         # State vector: [P, h_0..h_{N-1}, Tw_0..Tw_{N-1}]
         y0 = np.concatenate([np.array([P0]), h0, Tw0, np.array([P0_cond]), h0_cond, T0_wall, T0_water])
@@ -450,7 +428,7 @@ class Refrigerant:
 
                 # Quality for correlations (optional but useful)
                 try:
-                    x_k = float(PropsSI("Q", "P", P, "H", h_k, fluid))
+                    x_k = float(PropsSI("Q", "P", P_cond, "H", h_k, fluid))
                 except ValueError:
                     x_k = float("nan")
 
@@ -468,7 +446,7 @@ class Refrigerant:
                 h_int_k = float(self.h_int_corr_cond())
                 h_int_water = float(self.h_int_corr_water())
 
-                # Heat rate into refrigerant (your convention)
+                # Heat rate into refrigerant
                 Q_ref_k = h_int_k * HP.A_plate/N_condenser * (T_wall[k] - T_ref_K)  # [W]
                 Q_into_ref_cond[k] = Q_ref_k
 
@@ -481,7 +459,7 @@ class Refrigerant:
                 P=P_cond,
                 h=h_cond,
                 T=T_water,
-                T_in_water=HP.T_in_water,
+                T_in_water=HP.T_in_water+273.15,
                 h_in=h_out_comp,
                 m_in=m_comp,
                 m_out=m_valve,
@@ -562,19 +540,22 @@ class Refrigerant:
         T_wall_end = y_end[2 + 2 * N + N_condenser:2 + 2 * N + 2 * N_condenser]
         T_water_end = y_end[2 + 2 * N + 2 * N_condenser:2 + 2 * N + 3 * N_condenser]
 
+        # Heat flows
+        T_ref_evap_K = np.array([PropsSI("T", "P", P_end, "H", float(hk), fluid) for hk in h_end], dtype=float)
+
+        Q_evap = self.geometry.stacks * float(np.sum(self.h_int_corr() * gp.A_inner * (Tw_end - T_ref_evap_K)))  # [W]
+        Q_cond = float(np.sum(self.h_int_corr_water() * (HP.A_plate / N_condenser) * (T_wall_end - T_water_end)))  # [W]
+
         # Console output
         #n_inner = len(sol.t) - 1
         n_inner = inner_steps
-        T_out0_K = float(PropsSI("T", "P", P_end, "H", float(h_end[0]), fluid))
-        T_out0_C = T_out0_K - 273.15
+        mean_T_ref_evap_K = float(PropsSI("T", "P", P_end, "H", float(np.mean(h_end)), fluid))
+        mean_T_ref_evap_C = mean_T_ref_evap_K - 273.15
         mean_Tw_C = float(np.mean(Tw_end) - 273.15)
         ref_time = cycl_t1_ref - cycl_t0_ref
 
         print(
-            "Refrigerant Domain Inner Steps: " + str(n_inner) +
-            " \t T_out_ref: " + f"{T_out0_C:.3e}" +
-            " \t mean T_tube: " + f"{mean_Tw_C:.3e}" +
-            " \t cycle time: " + f"{ref_time:.3f} s"
+            f"HP(it={n_inner}, mean T_evap={mean_T_ref_evap_C:.2f} °C, mean T_tube_evap={mean_Tw_C:.2f} °C, Q_evap={Q_evap:.2f} W, Q_cond={Q_cond:.2f} W, ct={ref_time:.3f} s)"
         )
 
         # ----------------------------------------------------------
@@ -584,9 +565,6 @@ class Refrigerant:
             cfg = cfg_grid[ix][iy]
             h_k = float(h_end[k])
             Tw_C = float(Tw_end[k] - 273.15)
-
-            # Cell-centered mass flow for storage: average of adjacent faces
-            #m_cell = 0.5 * (m_faces_end[k] + m_faces_end[k + 1])
 
             # Derived outputs
             T_ref_K = float(PropsSI("T", "P", P_end, "H", h_k, fluid))
@@ -606,8 +584,10 @@ class Refrigerant:
 
         HP.p_ref_cond = P_cond_end
         HP.h_ref_cond = h_cond_end
-        HP.T_wall = T_wall_end
-        HP.T_water = T_water_end
+        HP.T_wall = T_wall_end - 273.15
+        HP.T_water = T_water_end - 273.15
+        HP.Q_evap = Q_evap
+        HP.Q_cond = Q_cond
 
 
     def reset_integrator(self):
