@@ -4,6 +4,7 @@ import numpy as np
 from scipy.integrate import solve_ivp, BDF
 import CoolProp.CoolProp as CP
 from CoolProp.CoolProp import PropsSI
+from Framework.models.derivatives_of_rho import drho_dP_dH
 
 
 @dataclass
@@ -38,41 +39,79 @@ class Refrigerant:
         self.fluid = cfg.ref_str
         self.AS = CP.AbstractState("HEOS", self.fluid)  # or "BICUBIC&HEOS", "TTSE&HEOS", etc.
         self.connection_path = geometry.build_connection_path(variant=path_variant)
+        self._path_ix = np.array([ix for ix, iy in self.connection_path], dtype=int)
+        self._path_iy = np.array([iy for ix, iy in self.connection_path], dtype=int)
         self.HP = HP
         self._bdf = None
         self._bdf_dim = None
         self._rhs_ptr = None
         self._rhs_wrapper = lambda t, y: self._rhs_ptr(t, y)
+        self._init_rho_tables()
 
+    def _init_rho_tables(self):
+        out = drho_dP_dH(
+            self,
+            fluid=self.fluid,
+            P_min=1e3, P_max=20e5, dP=1e4,
+            H_min=2e5, H_max=5e5, dH=1e3,
+            scheme="central",
+            save_path=None,
+            load_path=None,
+        )
+        self._rho_interp = out["rho_interp"]
+        self._drho_dP_interp = out["drho_dP_interp"]
+        self._drho_dH_interp = out["drho_dH_interp"]
+        self._T_interp = out.get("T_interp", None)
 
-    def rho_and_derivs(self, p_i, h_i, x_i):
-        """
-        Returns density and its partial derivatives wrt p and h.
+        # Grenzen zum Clipping (damit Interpolator nicht NaN liefert)
+        self._P_min = float(out["P_vec"][0]);
+        self._P_max = float(out["P_vec"][-1])
+        self._H_min = float(out["H_vec"][0]);
+        self._H_max = float(out["H_vec"][-1])
 
-        Inputs:
-            p_i  [Pa]      local pressure
-            h_i  [J/kg]    local specific enthalpy
-            x_i  [-]       local vapour quality from your model (cfg.x_ref)
-        """
+    def T_from_PH(self, p_i, h_i):
+        p = float(np.clip(p_i, self._P_min, self._P_max))
+        h = float(np.clip(h_i, self._H_min, self._H_max))
+        return float(self._T_interp([[p, h]])[0])
 
-        AS = self.AS
+    def rho_and_derivs(self, p_i, h_i):
+        p = float(np.clip(p_i, self._P_min, self._P_max))
+        h = float(np.clip(h_i, self._H_min, self._H_max))
+        pt = np.array([[p, h]], dtype=float)
 
-        # Update state with (P, H)
-        AS.update(CP.HmassP_INPUTS, h_i, p_i)
-        rho_i = AS.rhomass()
+        rho  = float(self._rho_interp(pt)[0])
+        drhodp = float(self._drho_dP_interp(pt)[0])
+        drhodh = float(self._drho_dH_interp(pt)[0])
 
-        # Decide phase via your own quality
-        # two-phase if 0 < x < 1 (you can add a small tolerance if needed)
-        if 0.0 < x_i < 1.0:
-            # Two-phase (Thorade) derivatives
-            drho_dp = AS.first_two_phase_deriv(CP.iDmass, CP.iP,     CP.iHmass)   # (∂ρ/∂p)|h
-            drho_dh = AS.first_two_phase_deriv(CP.iDmass, CP.iHmass, CP.iP)       # (∂ρ/∂h)|p
-        else:
-            # Single-phase derivatives
-            drho_dp = AS.first_partial_deriv(CP.iDmass, CP.iP,     CP.iHmass)     # (∂ρ/∂p)|h
-            drho_dh = AS.first_partial_deriv(CP.iDmass, CP.iHmass, CP.iP)         # (∂ρ/∂h)|p
+        return rho, drhodp, drhodh
 
-        return rho_i, drho_dp, drho_dh
+    def rho_and_derivs_vec(self, P, h_vec):
+        P = float(np.clip(P, self._P_min, self._P_max))
+        h = np.asarray(h_vec, dtype=float)
+        h = np.clip(h, self._H_min, self._H_max)
+
+        pts = np.column_stack([np.full_like(h, P, dtype=float), h])  # shape (N,2)
+
+        rho = self._rho_interp(pts).astype(float)
+        rhoP = self._drho_dP_interp(pts).astype(float)
+        rhoh = self._drho_dH_interp(pts).astype(float)
+
+        return rho, rhoP, rhoh
+
+    def T_from_PH_vec(self, P, h_vec):
+        P = float(np.clip(P, self._P_min, self._P_max))
+        h = np.asarray(h_vec, dtype=float)
+        h = np.clip(h, self._H_min, self._H_max)
+
+        if self._T_interp is None:
+            # PropsSI kann Arrays; P muss gleich lang sein
+            P_arr = np.full_like(h, P, dtype=float)
+            return PropsSI("T", "P", P_arr, "H", h, self.fluid).astype(float)
+
+        pts = np.column_stack([np.full_like(h, P, dtype=float), h])
+        T = self._T_interp(pts).astype(float)
+
+        return T
 
     # ------------------------------------------------------------------
     # Lokale Korrelation für h_int (Wärmeübergang Wand ↔ Kältemittel)
@@ -91,7 +130,6 @@ class Refrigerant:
         return VPos
 
     def valve_model(self, pi, hi, po, VPos):
-
         Kv = 0.25
         rho = PropsSI("D", "P", pi, "H", hi, self.fluid)
         U = VPos / 100
@@ -114,7 +152,7 @@ class Refrigerant:
 
         s = PropsSI("S", "P", pi, "H", hi, self.fluid)
         h_is = PropsSI('H', 'P', po, 'S', s, self.fluid)
-        #h_is = h_is.reshape(po.shape) #------------------------------------------------------------------------Wieso?
+        #h_is = h_is.reshape(po.shape)
         rho = PropsSI("D", "P", pi, "H", hi, self.fluid)
         ho = hi + (h_is - hi) / eta_is
         m = RPM / 60 * Vd * eta_v * rho
@@ -139,66 +177,6 @@ class Refrigerant:
         path = self.connection_path
         N = len(path)
         N_condenser = HP.N_cond
-
-        # def solve_dp_dh_condenser(P, h, T, T_in_water, h_in, m_in, m_out, m_water, Q_into_ref, Q_wall_water, V, M_water, M_wall, rho, rhoP, rhoh):
-        #     """
-        #     """
-        #
-        #     a = V * rhoP
-        #     b = V * rhoh
-        #     c = V*(h*rhoP - 1.0)
-        #     d = V*(h*rhoh + rho)
-        #
-        #     A_mat = np.zeros((4 * N_condenser + 1, 4 * N_condenser + 1))
-        #     b_vec = np.zeros((4 * N_condenser + 1,))
-        #
-        #     # --- [1] Total Mass and Energy balances ---
-        #     idx_v = np.arange(0, 2 * N_condenser + 1)
-        #     # Mass
-        #     A_mat[0, idx_v[0]] = np.sum(a)
-        #     A_mat[0, idx_v[1:]] = b
-        #     b_vec[0] = m_in - m_out
-        #     # Energy
-        #     A_mat[1, idx_v[0]] = np.sum(c)
-        #     A_mat[1, idx_v[1:]] = d
-        #     b_vec[1] = m_in * h_in - m_out * h[-1] - np.sum(Q_into_ref)
-        #
-        #     # --- [2] Energy balances ---
-        #     A_mat[2, 0] = c[0] - a[0] * h[0]
-        #     A_mat[2, 1] = d[0] - b[0] * h[0]
-        #     b_vec[2] = m_in * (h_in - h[0]) - Q_into_ref[0]
-        #     row_e = np.arange(3, 2 * N_condenser + 1)
-        #     A_mat[row_e, 0] = c[1:-1] - a[1:-1] * h[1:-1] - (h[1:-1] - h[:-2]) * np.cumsum(a[:2 * N_condenser - 2])
-        #     A_mat[row_e, np.arange(2, 2 * N_condenser)] = d[1:-1] - b[1:-1] * h[1:-1]
-        #     b_vec[row_e] = m_in * (h[:-2] - h[1:-1]) - Q_into_ref[1:-1]
-        #     delta_h = h[1:-1] - h[:-2]
-        #     b_broadcast = b[np.newaxis, :2 * N_condenser - 1]
-        #     delta_h_broadcast = delta_h[:, np.newaxis]
-        #     lower_tri = np.tril(np.ones((2 * N_condenser - 2, 2 * N_condenser - 1)))
-        #     fill_vals = delta_h_broadcast * b_broadcast * lower_tri
-        #     A_mat[row_e[:, None], np.arange(1, 2 * N_condenser)] += fill_vals
-        #
-        #     # --- [3] Wall Energy balances ---
-        #     row_w = np.arange(2 * N_condenser + 1, 3 * N_condenser + 1)
-        #     col_w = np.arange(2 * N_condenser + 1, 3 * N_condenser + 1)
-        #     A_mat[row_w, col_w] = M_wall * self.geometry.c_solid
-        #     b_vec[row_w] = Q_into_ref - Q_wall_water
-        #
-        #     # --- [4] Secondary Fluid Energy balances ---
-        #     row_s = np.arange(3 * N_condenser + 1, 4 * N_condenser + 1)
-        #     col_s = np.arange(3 * N_condenser + 1, 4 * N_condenser + 1)
-        #     A_mat[row_s, col_s] = M_water * HP.c_water
-        #     b_vec[[row_s[:-1]]] = m_water * HP.c_water * (T[1:] - T[:-1]) + Q_wall_water[:-1]
-        #     b_vec[row_s[-1]] = m_water * HP.c_water * (T_in_water - T[-1]) + Q_wall_water[-1]
-        #
-        #     x = np.linalg.solve(A_mat, b_vec)
-        #
-        #     dPdt = float(x[0])
-        #     dhdt = x[1:1 + N_condenser].copy()
-        #     dT_walldt = x[N_condenser+1:2*N_condenser+1].copy()
-        #     dT_waterdt = x[2*N_condenser+1:3*N_condenser+1].copy()
-        #
-        #     return dPdt, dhdt, dT_walldt, dT_waterdt
 
         def solve_dp_dh_condenser(P, h, T, T_in_water, h_in, m_in, m_out, m_water, Q_into_ref, Q_wall_water, V, M_water,
                                   M_wall, rho, rhoP, rhoh):
@@ -335,13 +313,26 @@ class Refrigerant:
         y0 = np.concatenate([np.array([P0]), h0, Tw0, np.array([P0_cond]), h0_cond, T0_wall, T0_water])
 
         # ----------------------------------------------------------
-        # Boundary mass flows
+        # Vectorising
         # ----------------------------------------------------------
-        m_in = float(cfg_inlet.m_dot_ref)
 
-        (ixL, iyL) = path[-1]
-        cfgL = cfg_grid[ixL][iyL]
-        m_out = float(cfgL.m_dot_ref_out)
+        # Verdampfer-Konstanten:
+        ixp = self._path_ix
+        iyp = self._path_iy
+
+        Qseg = np.asarray(Q_seg_list, dtype=float)
+
+        V = np.full(N, gp.A_flow * gp.dx, dtype=float)
+        den_wall = gp.rho_wall * gp.c_wall * gp.V_wall
+        h_int_evap = float(self.h_int_corr())
+
+        # Kondensator-Konstanten:
+        V_cond = np.full(N_condenser, HP.A_flow_cond * HP.dx_cond, dtype=float)
+        M_water = np.full(N_condenser, HP.A_flow_cond * HP.dx_cond * HP.rho_water, dtype=float)
+        M_wall = np.full(N_condenser, HP.t_plate * HP.dx_cond * HP.height_cond * HP.rho_plate, dtype=float)
+        A_plate_seg = HP.A_plate / N_condenser
+        h_int_cond = float(self.h_int_corr_cond())
+        h_int_water = float(self.h_int_corr_water())
 
         # ----------------------------------------------------------
         # RHS
@@ -359,44 +350,46 @@ class Refrigerant:
             m_valve, h_out_valve = self.valve_model(P_cond, h_cond[-1], P, self.valve_controller())
 
             # Per-segment arrays needed for linear solve
-            V = np.full(N, gp.A_flow * gp.dx, dtype=float)
-            rho = np.zeros(N, dtype=float)
-            rhoP = np.zeros(N, dtype=float)
-            rhoh = np.zeros(N, dtype=float)
-            Q_into_ref = np.zeros(N, dtype=float)  # + into refrigerant [W]
-            dTwdt = np.zeros(N, dtype=float)
-
+            #V = np.full(N, gp.A_flow * gp.dx, dtype=float)
+            #rho = np.zeros(N, dtype=float)
+            #rhoP = np.zeros(N, dtype=float)
+            #rhoh = np.zeros(N, dtype=float)
+            #Q_into_ref = np.zeros(N, dtype=float)  # + into refrigerant [W]
+            #dTwdt = np.zeros(N, dtype=float)
+            #
             # Build property and heat-transfer terms
-            for k, (ix, iy) in enumerate(path):
-                h_k = float(h[k])
+            #for k, (ix, iy) in enumerate(path):
+            #    h_k = float(h[k])
+            #
+            #    # density and derivatives at (P, h_k)
+            #    rho_k, drho_dP_k, drho_dh_k = self.rho_and_derivs(P, h_k) # Grid interpolator um ableitungen vektorisiert holen
+            #    rho[k] = float(rho_k)
+            #    rhoP[k] = float(drho_dP_k)
+            #    rhoh[k] = float(drho_dh_k)
+            #
+            #    # Refrigerant temperature
+            #    T_ref_K = self.T_from_PH(P, h_k)
+            #
+            #    # Internal HTC
+            #    h_int_k = float(self.h_int_corr())
+            #
+            #    # Heat rate into refrigerant (your convention)
+            #    Q_ref_k = h_int_k * gp.A_inner * (Tw[k] - T_ref_K)  # [W]
+            #    Q_into_ref[k] = Q_ref_k
+            #
+            #    # External heat into wall (from air/frost model)
+            #    Q_f_k = float(Q_seg_list[ix][iy])  # [W] into wall
+            #
+            #    # Wall ODE: (in - out) / (m*c)
+            #    dTwdt[k] = (Q_f_k - Q_ref_k) / (gp.rho_wall * gp.c_wall * gp.V_wall)
 
-                # Quality for correlations (optional but useful)
-                try:
-                    x_k = float(PropsSI("Q", "P", P, "H", h_k, fluid))
-                except ValueError:
-                    x_k = float("nan")
+            # --- Evaporator: vectorised ---
+            rho, rhoP, rhoh = self.rho_and_derivs_vec(P, h)
+            T_ref_K = self.T_from_PH_vec(P, h)
 
-                # density and derivatives at (P, h_k)
-                rho_k, drho_dP_k, drho_dh_k = self.rho_and_derivs(P, h_k, x_k) # Grid interpolator um ableitungen vektorisiert holen
-                rho[k] = float(rho_k)
-                rhoP[k] = float(drho_dP_k)
-                rhoh[k] = float(drho_dh_k)
-
-                # Refrigerant temperature
-                T_ref_K = float(PropsSI("T", "P", P, "H", h_k, fluid))
-
-                # Internal HTC
-                h_int_k = float(self.h_int_corr())
-
-                # Heat rate into refrigerant (your convention)
-                Q_ref_k = h_int_k * gp.A_inner * (Tw[k] - T_ref_K)  # [W]
-                Q_into_ref[k] = Q_ref_k
-
-                # External heat into wall (from air/frost model)
-                Q_f_k = float(Q_seg_list[ix][iy])  # [W] into wall
-
-                # Wall ODE: (in - out) / (m*c)
-                dTwdt[k] = (Q_f_k - Q_ref_k) / (gp.rho_wall * gp.c_wall * gp.V_wall)
+            Q_into_ref = h_int_evap * gp.A_inner * (Tw - T_ref_K)  # shape (N,)
+            Q_f = Qseg[ixp, iyp]  # shape (N,)
+            dTwdt = (Q_f - Q_into_ref) / den_wall  # shape (N,)
 
             # Solve coupled refrigerant linear system
             dPdt, dhdt = solve_dp_dh_evaporator(
@@ -413,47 +406,47 @@ class Refrigerant:
             )
 
             # Per-segment arrays needed for linear solve
-            V_cond = np.full(N_condenser, HP.A_flow_cond * HP.dx_cond, dtype=float)
-            rho_cond = np.zeros(N_condenser, dtype=float)
-            rhoP_cond = np.zeros(N_condenser, dtype=float)
-            rhoh_cond = np.zeros(N_condenser, dtype=float)
-            Q_into_ref_cond = np.zeros(N_condenser, dtype=float)  # + into refrigerant [W]
-            Q_wall_water = np.zeros(N_condenser, dtype=float)
-            M_water = np.full(N_condenser, HP.A_flow_cond * HP.dx_cond * HP.rho_water, dtype=float)
-            M_wall = np.full(N_condenser, HP.A_wall * HP.dx_cond * self.geometry.rho_solid, dtype=float)
+            #V_cond = np.full(N_condenser, HP.A_flow_cond * HP.dx_cond, dtype=float)
+            #rho_cond = np.zeros(N_condenser, dtype=float)
+            #rhoP_cond = np.zeros(N_condenser, dtype=float)
+            #rhoh_cond = np.zeros(N_condenser, dtype=float)
+            #Q_into_ref_cond = np.zeros(N_condenser, dtype=float)  # + into refrigerant [W]
+            #Q_wall_water = np.zeros(N_condenser, dtype=float)
+            #M_water = np.full(N_condenser, HP.A_flow_cond * HP.dx_cond * HP.rho_water, dtype=float)
+            #M_wall = np.full(N_condenser, HP.A_wall * HP.dx_cond * self.geometry.rho_solid, dtype=float)
+            #
+            ## Build property and heat-transfer terms
+            #for k in range(N_condenser):
+            #    h_k = float(h_cond[k])
+            #
+            #    # density and derivatives at (P, h_k)
+            #    rho_k, drho_dP_k, drho_dh_k = self.rho_and_derivs(P_cond, h_k)  # Grid interpolator um ableitungen vektorisiert holen
+            #    rho_cond[k] = float(rho_k)
+            #    rhoP_cond[k] = float(drho_dP_k)
+            #    rhoh_cond[k] = float(drho_dh_k)
+            #
+            #    # Refrigerant temperature
+            #    T_ref_K = self.T_from_PH(P_cond,h_k)
+            #
+            #    # Internal HTC
+            #    h_int_k = float(self.h_int_corr_cond())
+            #    h_int_water = float(self.h_int_corr_water())
+            #
+            #    # Heat rate into refrigerant
+            #    Q_ref_k = h_int_k * HP.A_plate/N_condenser * (T_wall[k] - T_ref_K)  # [W]
+            #    Q_into_ref_cond[k] = Q_ref_k
+            #
+            #    # External heat into wall (from air/frost model)
+            #    Q_wall_water_k = h_int_water * HP.A_plate/N_condenser * (T_wall[k] - T_water[k])  # [W] into wall
+            #
+            #    Q_wall_water[k] = Q_wall_water_k
 
-            # Build property and heat-transfer terms
-            for k in range(N_condenser):
-                h_k = float(h_cond[k])
+            # --- Condenser: vectorised ---
+            rho_cond, rhoP_cond, rhoh_cond = self.rho_and_derivs_vec(P_cond, h_cond)
+            T_ref_K_cond = self.T_from_PH_vec(P_cond, h_cond)
 
-                # Quality for correlations (optional but useful)
-                try:
-                    x_k = float(PropsSI("Q", "P", P_cond, "H", h_k, fluid))
-                except ValueError:
-                    x_k = float("nan")
-
-                # density and derivatives at (P, h_k)
-                rho_k, drho_dP_k, drho_dh_k = self.rho_and_derivs(P_cond, h_k,
-                                                                  x_k)  # Grid interpolator um ableitungen vektorisiert holen
-                rho_cond[k] = float(rho_k)
-                rhoP_cond[k] = float(drho_dP_k)
-                rhoh_cond[k] = float(drho_dh_k)
-
-                # Refrigerant temperature
-                T_ref_K = float(PropsSI("T", "P", P_cond, "H", h_k, fluid))
-
-                # Internal HTC
-                h_int_k = float(self.h_int_corr_cond())
-                h_int_water = float(self.h_int_corr_water())
-
-                # Heat rate into refrigerant
-                Q_ref_k = h_int_k * HP.A_plate/N_condenser * (T_wall[k] - T_ref_K)  # [W]
-                Q_into_ref_cond[k] = Q_ref_k
-
-                # External heat into wall (from air/frost model)
-                Q_wall_water_k = h_int_water * HP.A_plate/N_condenser * (T_wall[k] - T_water[k])  # [W] into wall
-
-                Q_wall_water[k] = Q_wall_water_k
+            Q_into_ref_cond = h_int_cond * A_plate_seg * (T_wall - T_ref_K_cond)
+            Q_wall_water = h_int_water * A_plate_seg * (T_wall - T_water)
 
             dPdt_cond, dhdt_cond, dTdt_wall_cond, dTdt_water_cond = solve_dp_dh_condenser(
                 P=P_cond,
