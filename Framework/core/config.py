@@ -53,16 +53,20 @@ class GridShape:
 @dataclass(frozen=False)
 class HeatPump:
     #condenser
-    N_cond: float
+    N_cond: float           # Number of plates
     p_ref_cond: float
     h_ref_cond: np.ndarray
     T_wall: np.ndarray
     T_water: np.ndarray
 
-    A_flow_cond: float
-    dx_cond: float
-    A_wall: float
-    A_plate: float
+    A_flow_cond: float      # cross-sectional flow area [m2]
+    dx_cond: float          # L/N_cond
+    t_plate: float          # Plate thickness
+    height_cond: float      # heat exchanger height
+    A_plate: float          # Condenser heat transfer area [m2]
+    c_plate: float
+    rho_plate: float
+    lamda_plate: float
 
     #water
     T_in_water: float

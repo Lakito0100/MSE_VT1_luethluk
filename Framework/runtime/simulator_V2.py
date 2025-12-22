@@ -318,24 +318,26 @@ class Simulator:
             Q_cond = self.HP.Q_cond
             Q_evap = self.HP.Q_evap
 
-            COP_cold = Q_evap/W_comp
-            COP_warm = Q_cond/W_comp
+            EER = Q_evap/W_comp
+            COP = Q_cond/W_comp
 
             mean_s_ft = np.mean([st_grid[ix][iy].s_ft
                                  for ix in range(n_x)
                                  for iy in range(n_y)])
             humid_l = np.array([seg[0].w_amb for seg in cfg_grid])
 
-            p_ref = cfg_grid[x0][y0].p_ref
+            p_ref_evap = cfg_grid[x0][y0].p_ref
+            p_ref_cond = self.HP.p_ref_cond
 
             # einfache Zeitsignale im Speicher halten
             self.rec.push(t=t,
-                          COP_cold=COP_cold,
-                          COP_warm=COP_warm,
+                          EER=EER,
+                          COP=COP,
                           mean_s_ft=mean_s_ft,
                           T_out_air_mean=T_outlet_air_mean,
                           T_out_ref=T_ref_out,
-                          p_ref = p_ref,
+                          p_ref_evap=p_ref_evap,
+                          p_ref_cond=p_ref_cond,
                           humidity=humid_l)
 
             # Push grid snapshot
