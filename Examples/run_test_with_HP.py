@@ -30,13 +30,14 @@ rho_amb_in = 1.0 / HAPropsSI("Vha","T",T_a+273.15,"P",P,"R",RH)
 
 refrigerant = "R134a"
 #at evaportor
-x_evap = 1.0
-p_ref_evap = PropsSI("P", "T", T_a + 273.15 - 8.0, "Q", x_evap, refrigerant)
-h_ref_in = PropsSI("H", "T", T_a + 273.15 + 5.0, "P", p_ref_evap, refrigerant)
+x_evap = 0.5
+p_ref_evap = PropsSI("P", "T", T_a + 273.15, "Q", x_evap, refrigerant)
+h_ref_evap = PropsSI("H", "T", T_a + 273.15, "Q", x_evap, refrigerant)
 
 #at condenser
-p_ref_cond = PropsSI("P", "T", T_in_water + 273.15 + 10.0, "Q", 0, refrigerant)
-h_ref_cond = PropsSI("H", "T", T_in_water + 273.15 - 3.0, "P", p_ref_cond, refrigerant)
+x_cond = 0.5
+p_ref_cond = PropsSI("P", "T", T_in_water + 273.15, "Q", x_cond, refrigerant)
+h_ref_cond = PropsSI("H", "T", T_in_water + 273.15, "Q", x_cond, refrigerant)
 
 geom = FinnTubedHX(
     n_seg_l = 2,        # -
@@ -56,8 +57,8 @@ geom = FinnTubedHX(
 )
 
 gs = GridShape(
-    t_end = 10*60.0,      # s endtime
-    dt = 2.0,           # s time step
+    t_end = 5*60.0,      # s endtime
+    dt = 1.0,           # s time step
     store_grid_every_x_it = 10,
 
     nx = 100,
@@ -99,7 +100,7 @@ cfg = CaseConfig(
     T_tube = T_a,    # °C tube temperature
     T_ref = T_a,     # °C tube temperature
     p_ref = p_ref_evap,      # Pa Kältemitteldruck
-    h_ref = h_ref_in,          # J/kg spezifische Enthalpie
+    h_ref = h_ref_evap,          # J/kg spezifische Enthalpie
     m_dot_ref = 0,      # kg/s Massenstrom am Inlet (invalid)
     m_dot_ref_out = 0,      # kg/s Massenstrom am Outlet (invalid)
     x_ref = x_evap,           # Dampfqualität (0..1), NaN falls einphasig
