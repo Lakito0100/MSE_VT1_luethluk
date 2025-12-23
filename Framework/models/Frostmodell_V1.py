@@ -334,7 +334,7 @@ class Frostmodell_Edge:
 
             # Unterrelaxation aus Stabilitätsgründen
 
-            omega_T = 0.1
+            omega_T = 1.0 # save stabil: 0.1
             omega_w = 1.0
 
             T_f_old[:] = (1 - omega_T) * T_f_old + omega_T * T_f_new
@@ -544,7 +544,7 @@ class Frostmodell_Finn_and_Tube:
             res_w = np.max(np.abs(w_f_new - w_f_old))
 
             # Unterrelaxation wie beim Edge-Modell
-            omega_T = 0.1
+            omega_T = 1.0 # save stabil: 0.1
             omega_w = 1.0
 
             T_f_old[:] = (1 - omega_T) * T_f_old + omega_T * T_f_new

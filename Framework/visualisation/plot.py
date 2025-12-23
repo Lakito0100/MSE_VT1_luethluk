@@ -1,6 +1,7 @@
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import numpy as np
+from CoolProp.CoolProp import PropsSI
 
 def extract_segment_timeseries_from_snapshots(grid_snapshots, field, ix, iy):
     """
@@ -533,3 +534,269 @@ def plot_segment_field_grid(
         plt.show()
 
     return fig, ax, Z
+
+def _sat_dome_ph(ref: str, n: int = 400):
+    T_tr = PropsSI("Ttriple", ref)
+    T_cr = PropsSI("Tcrit", ref)
+    T = np.linspace(T_tr + 1.0, T_cr - 1.0, n)
+
+    p  = np.array([PropsSI("P", "T", Ti, "Q", 0, ref) for Ti in T], dtype=float)
+    hL = np.array([PropsSI("H", "T", Ti, "Q", 0, ref) for Ti in T], dtype=float)
+    hV = np.array([PropsSI("H", "T", Ti, "Q", 1, ref) for Ti in T], dtype=float)
+    return hL, hV, p
+
+def _grid_style(ax, grid: str):
+    grid = (grid or "dashed").lower()
+    if grid in ("none", "off", "false", "0"):
+        ax.grid(False)
+    elif grid in ("dashed", "dash"):
+        ax.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.3)
+    elif grid in ("light", "thin"):
+        ax.grid(True, which="both", linestyle="-", linewidth=0.4, alpha=0.2)
+    else:
+        raise ValueError("grid must be 'none', 'dashed', or 'light'.")
+
+def _auto_limits_logph_from_cycle(cycle_ph_sel, *, x_pad_rel=0.15, x_pad_abs=15.0, y_pad_factor=1.35):
+    """
+    cycle_ph_sel: (nsel, 4, 2) mit p[Pa], h[J/kg]
+    Returns: (xlim_kJkg, ylim_bar)
+    """
+    ph = np.asarray(cycle_ph_sel, dtype=float)
+    p_bar = ph[:, :, 0] / 1e5
+    h_kj  = ph[:, :, 1] / 1000.0
+
+    p_bar = p_bar[np.isfinite(p_bar)]
+    h_kj  = h_kj[np.isfinite(h_kj)]
+
+    if p_bar.size == 0 or h_kj.size == 0:
+        return None, None
+
+    hmin, hmax = float(np.min(h_kj)), float(np.max(h_kj))
+    pmin, pmax = float(np.min(p_bar[p_bar > 0])) if np.any(p_bar > 0) else 0.1, float(np.max(p_bar))
+
+    dh = hmax - hmin
+    pad_x = max(x_pad_abs, x_pad_rel * dh) if dh > 1e-9 else x_pad_abs
+    xlim = (hmin - pad_x, hmax + pad_x)
+
+    # log-y: multiplikativer Rand ist stabiler
+    ylo = max(pmin / y_pad_factor, 1e-6)
+    yhi = pmax * y_pad_factor
+    ylim = (ylo, yhi)
+
+    return xlim, ylim
+
+def _compute_isotherms_ph(ref: str, pmin: float, pmax: float, Ts_C, nP: int = 90):
+    lines = []
+    for T_C in Ts_C:
+        T_K = float(T_C) + 273.15
+        try:
+            p_sat = float(PropsSI("P", "T", T_K, "Q", 0, ref))
+        except Exception:
+            continue
+
+        # Dampfseite (p <= p_sat)
+        h_vap = p_vap = None
+        p_hi_vap = min(p_sat * 0.999, pmax)
+        if pmin < p_hi_vap:
+            pv = np.geomspace(max(pmin, 1.0), p_hi_vap, nP)
+            hv = []
+            for p in pv:
+                try:
+                    hv.append(float(PropsSI("H", "T", T_K, "P", float(p), ref)))
+                except Exception:
+                    hv.append(np.nan)
+            hv = np.asarray(hv, dtype=float)
+            m = np.isfinite(hv)
+            if np.any(m):
+                h_vap, p_vap = hv[m], pv[m]
+
+        # Flüssigkeitsseite (p >= p_sat)
+        h_liq = p_liq = None
+        p_lo_liq = max(p_sat * 1.001, pmin)
+        if p_lo_liq < pmax:
+            pl = np.geomspace(p_lo_liq, pmax, nP)
+            hl = []
+            for p in pl:
+                try:
+                    hl.append(float(PropsSI("H", "T", T_K, "P", float(p), ref)))
+                except Exception:
+                    hl.append(np.nan)
+            hl = np.asarray(hl, dtype=float)
+            m = np.isfinite(hl)
+            if np.any(m):
+                h_liq, p_liq = hl[m], pl[m]
+
+        if (h_vap is not None) or (h_liq is not None):
+            lines.append((float(T_C), h_vap, p_vap, h_liq, p_liq))
+    return lines
+
+def plot_logph_cycles(
+    ref: str,
+    t,
+    cycle_ph,
+    *,
+    t_idx=None,
+    at_time=None,
+    t_start=None,
+    t_end=None,
+    every_s=None,                 # z.B. 60.0
+    plot_dome=True,
+
+    # Isothermen + Grid
+    isotherms: bool = True,
+    iso_Ts_C=None,                # z.B. [-10, 0, 10, 20, 30, 40]
+    n_iso: int = 10,               # falls iso_Ts_C None
+    iso_style: str = "--",
+    iso_lw: float = 1.0,
+    iso_alpha: float = 0.45,
+    iso_labels: bool = True,
+    grid: str = "dashed",         # "none" | "dashed" | "light"
+
+    # ---- NEU: Auto-Skalierung ohne Änderungen am Aufruf ----
+    figsize=None,                 # None => automatisch (größerer Default)
+    xlim=None,                    # (xmin, xmax) in kJ/kg; None => automatisch
+    ylim=None,                    # (ymin, ymax) in bar;   None => automatisch
+
+    title=None,
+    save_path=None,
+    show=True
+):
+    """
+    t:        (nt,)
+    cycle_ph: (nt,4,2) oder Liste von 4x2 pro Zeit:
+              cycle_ph[i] = [[p1,h1],[p2,h2],[p3,h3],[p4,h4]] mit p[Pa], h[J/kg]
+    """
+
+    t = np.asarray(t, dtype=float).ravel()
+
+    # Robust: Liste -> stack wie in deinen anderen Objekt-Plots
+    arr = np.asarray(cycle_ph, dtype=object)
+    if arr.ndim == 1:
+        arr = np.stack([np.asarray(row, dtype=float) for row in arr], axis=0)
+    else:
+        arr = np.asarray(arr, dtype=float)
+    cycle_ph = arr
+
+    if cycle_ph.ndim != 3 or cycle_ph.shape[1:] != (4, 2):
+        raise ValueError(f"cycle_ph hat shape {cycle_ph.shape}, erwartet (nt,4,2).")
+
+    # --- Zeit-Auswahl ---
+    if t_idx is not None:
+        idxs = np.atleast_1d(t_idx).astype(int)
+        idxs = np.array([i if i >= 0 else len(t) + i for i in idxs], dtype=int)
+    elif at_time is not None:
+        targets = np.atleast_1d(at_time).astype(float)
+        idxs = np.array([np.abs(t - tau).argmin() for tau in targets], dtype=int)
+    elif (t_start is not None) or (t_end is not None):
+        if t_start is None: t_start = float(t[0])
+        if t_end   is None: t_end   = float(t[-1])
+        if every_s is None:
+            idxs = np.where((t >= t_start) & (t <= t_end))[0]
+        else:
+            targets = np.arange(float(t_start), float(t_end) + 1e-12, float(every_s))
+            idxs = np.array([np.abs(t - tau).argmin() for tau in targets], dtype=int)
+            idxs = np.unique(idxs)
+    else:
+        idxs = np.array([0], dtype=int)
+
+    # --- Auto-Limits (wenn nicht explizit gesetzt) ---
+    if xlim is None or ylim is None:
+        auto_xlim, auto_ylim = _auto_limits_logph_from_cycle(cycle_ph[idxs])
+        if xlim is None:
+            xlim = auto_xlim
+        if ylim is None:
+            ylim = auto_ylim
+
+    # Isothermen brauchen pmin/pmax in Pa: nutze bevorzugt die (auto/gegebenen) y-Limits
+    if ylim is not None:
+        pmin_pa = float(ylim[0]) * 1e5
+        pmax_pa = float(ylim[1]) * 1e5
+    else:
+        # fallback
+        p_sel = cycle_ph[idxs, :, 0].ravel()
+        p_sel = p_sel[np.isfinite(p_sel)]
+        pmin_pa = max(float(np.min(p_sel)) * 0.7, 1.0) if p_sel.size else 1e4
+        pmax_pa = float(np.max(p_sel)) * 1.3 if p_sel.size else 1e7
+
+    # --- Figure ---
+    if figsize is None:
+        figsize = (11, 7)  # größerer Default, ohne dass du beim Aufruf etwas ändern musst
+    fig, ax = plt.subplots(figsize=figsize)
+
+    # Sättigungsglocke
+    if plot_dome:
+        hL, hV, p = _sat_dome_ph(ref)
+        ax.plot(hL/1000.0, p/1e5)
+        ax.plot(hV/1000.0, p/1e5)
+
+    # Isothermen
+    if isotherms:
+        if iso_Ts_C is None:
+            # Tmin/Tmax aus ausgewählten Punkten (über P,H -> T)
+            Ts = []
+            for i in idxs:
+                for k in range(4):
+                    pPa = float(cycle_ph[i, k, 0])
+                    hJ  = float(cycle_ph[i, k, 1])
+                    if not (np.isfinite(pPa) and np.isfinite(hJ)):
+                        continue
+                    try:
+                        Ts.append(float(PropsSI("T", "P", pPa, "H", hJ, ref) - 273.15))
+                    except Exception:
+                        pass
+            if len(Ts) >= 2:
+                Tmin, Tmax = min(Ts) - 5.0, max(Ts) + 5.0
+                Ts_C = np.linspace(Tmin, Tmax, int(n_iso))
+                Ts_C = [5.0 * round(x/5.0) for x in Ts_C]
+                Ts_C = sorted(set(Ts_C))
+            else:
+                Ts_C = [-30, -20, -10, 0, 10, 20, 30, 40]
+        else:
+            Ts_C = list(iso_Ts_C)
+
+        iso_lines = _compute_isotherms_ph(ref, pmin_pa, pmax_pa, Ts_C, nP=90)
+        for (T_C, h_vap, p_vap, h_liq, p_liq) in iso_lines:
+            if h_vap is not None:
+                ax.plot(h_vap/1000.0, p_vap/1e5, linestyle=iso_style, linewidth=iso_lw, alpha=iso_alpha)
+                if iso_labels:
+                    ax.annotate(f"{T_C:.0f}°C", (h_vap[-1]/1000.0, p_vap[-1]/1e5),
+                                textcoords="offset points", xytext=(4, 2))
+            if h_liq is not None:
+                ax.plot(h_liq/1000.0, p_liq/1e5, linestyle=iso_style, linewidth=iso_lw, alpha=iso_alpha)
+
+    # Kreisprozess(e)
+    for i in idxs:
+        ph = cycle_ph[i]
+        pPa = ph[:, 0]
+        hJ  = ph[:, 1]
+
+        p_plot = np.r_[pPa, pPa[0]] / 1e5
+        h_plot = np.r_[hJ,  hJ[0]]  / 1000.0
+
+        ax.plot(h_plot, p_plot, marker="o", label=f"t={t[i]:g} s")
+        for k in range(4):
+            ax.annotate(str(k+1), (hJ[k]/1000.0, pPa[k]/1e5),
+                        textcoords="offset points", xytext=(5, 5))
+
+    ax.set_yscale("log")
+    ax.set_xlabel("h [kJ/kg]")
+    ax.set_ylabel("p [bar]")
+
+    # Auto/Manual Limits anwenden
+    if xlim is not None:
+        ax.set_xlim(xlim[0], xlim[1])
+    if ylim is not None:
+        ax.set_ylim(ylim[0], ylim[1])
+
+    _grid_style(ax, grid)
+
+    ax.legend()
+    ax.set_title(title if title else f"log(p)-h Diagramm ({ref})")
+
+    fig.tight_layout()
+
+    if save_path:
+        fig.savefig(save_path, dpi=300, bbox_inches="tight")
+    if show:
+        plt.show()
+    return fig, ax

@@ -1,11 +1,32 @@
 from CoolProp.HumidAirProp import HAPropsSI
 from Framework.models.Frostmodell_V1 import Frostmodell_Finn_and_Tube
 import math
+import numpy as np
 
 class Air:
 
     def __init__(self):
         self.ft_model = Frostmodell_Finn_and_Tube()
+
+        self._fan_initialized = False
+        self._K_clean = None
+        self._sigma_min = 1.0
+        self._last_mdot_total = None
+        self._last_dp_seg = 0.0
+
+    def _fan_enabled(self, cfg) -> bool:
+        return bool(getattr(cfg, "use_fan", False))
+
+    def _n_parallel_air_paths(self, geom) -> int:
+        # n_seg_l entspricht bei dir der Aufteilung über iy (du teilst im Simulator durch n_y)
+        n_y = geom.n_seg_r
+        stacks = geom.stacks
+        return max(1, n_y * stacks)
+
+    def _sigma_from_frost(self, geom, s_frost) -> float:
+        gap0 = float(geom.fin_gap())
+        gap_eff = max(gap0 - 2.0 * float(s_frost), 1e-9)
+        return float(np.clip(gap_eff / gap0, 0.001, 1.0))
 
     def p_ws_buck_Pa(self,T_C: float) -> float:
         """Saturation vapor pressure [Pa]; Buck (1981): water for T>=0°C, ice for T<0°C."""
@@ -48,6 +69,53 @@ class Air:
         T_in = cfg_in.T_a
         w_in = cfg_in.w_amb
         p_in = cfg_in.p_a
+
+        # ------------------------------------------------------------
+        # Fan-gekoppelter Gesamtmassenstrom inkl. stacks cfg_in.m_dot = Gesamtstrom über alle Stacks
+        # ------------------------------------------------------------
+        if self._fan_enabled(cfg_in) and bool(getattr(cfg_in, "fan_master", False)):
+            # Fan-Parameter (musst du am cfg setzen)
+            dp0 = float(getattr(cfg_in, "fan_dp0"))  # Pa, shut-off
+            V0 = float(getattr(cfg_in, "fan_V0"))  # m3/s, free delivery
+            dp_clean = float(getattr(cfg_in, "dp_clean"))  # Pa bei "clean"
+
+            npar = self._n_parallel_air_paths(geom)
+            rho_in = max(float(getattr(cfg_in, "rho_amb", 1.2)), 1e-6)
+
+            # Frost -> sigma (konservativ: sigma_min wird nur kleiner)
+            sigma = self._sigma_from_frost(geom, s_frost_bevor)
+            self._sigma_min = min(self._sigma_min, sigma)
+
+            # Initialisiere K_clean so, dass dp_ref_clean bei mdot_ref_total gilt
+            if not self._fan_initialized:
+                mdot_ref_total = max(float(getattr(cfg_in, "m_dot", 0.0)), 1e-9)  # Gesamt
+                mdot_ref_path = mdot_ref_total / npar
+                self._K_clean = dp_clean / (mdot_ref_path * mdot_ref_path)
+                self._fan_initialized = True
+
+            # effektiver Widerstand: dp = (K_clean/sigma^2) * (mdot_total/npar)^2
+            K_eff = self._K_clean / (self._sigma_min * self._sigma_min)
+
+            # Löse analytisch: dp0*(1-(V/V0)^2) = K_eff*(rho*V/npar)^2
+            num = dp0
+            if num <= 0.0:
+                mdot_total = 0.0
+            else:
+                denom = dp0 / max(V0 * V0, 1e-30) + K_eff * (rho_in * rho_in) / (npar * npar)
+                V2 = num / max(denom, 1e-30)
+                Vdot = float(np.sqrt(max(V2, 0.0)))
+                Vdot = min(max(Vdot, 0.0), V0)
+                mdot_total = rho_in * Vdot
+
+            # Gesamtstrom zurückschreiben, damit der Simulator "automatisch" davon lebt
+            cfg_in.m_dot = float(mdot_total)
+
+            # Für diese propagate_inplace-Auswertung: Strom pro Pfad/Schicht
+            m_dot_a = float(mdot_total) / npar
+
+            # für nachfolgende Aufrufe in derselben Makrostufe
+            self._last_mdot_total = float(mdot_total)
+            self._last_dp_seg = float(dp_seg)
 
         p_out = p_in - dp_seg
 
@@ -101,5 +169,4 @@ class Air:
         cfg_out.v_a = v_out
 
         return T_out, w_out, p_out
-
 
