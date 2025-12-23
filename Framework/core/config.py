@@ -18,6 +18,12 @@ class CaseConfig:
     C: float            # 1/s empirical water vapor absorbed coefficient
     isv: float          # J/kg latent heat of desublimation
 
+    # fan model
+    use_fan: bool
+    fan_dp0: float
+    fan_V0: float
+    dp_clean: float
+
     # refrigerant data
     ref_str: str        # Name of refrigerant
     T_tube: float       # °C tube temperature

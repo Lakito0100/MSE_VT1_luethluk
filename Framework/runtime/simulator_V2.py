@@ -43,6 +43,7 @@ class Simulator:
 
     def run(self, cfg, geom, gs, model):
         input_cfg = copy.deepcopy(cfg)
+        input_cfg.fan_master = True
         cfg_grid, st_grid = build_segment_grids(base_cfg=cfg, geom=geom, gs=gs)
         n_x = len(cfg_grid)
         n_y = len(cfg_grid[0])
@@ -139,7 +140,8 @@ class Simulator:
                     RH_air_at_wall = cfg.w_amb / max(w_sat_wall, 1e-12)
 
                 RH_air_at_wall = max(0.0, min(1.0, RH_air_at_wall))
-                if RH_air_at_wall >= 0.99 and gs.cal_frost:
+
+                if RH_air_at_wall >= 0.999 and gs.cal_frost:
                     cfg.frost_condition = True
 
                 # ---------------- Updating the edge state ----------------
@@ -183,7 +185,7 @@ class Simulator:
                     info["ft"] = (iter_ft, res_w_ft, res_T_ft, t1_ft - t0_ft)
 
                 # ---------------- Updating the air state ----------------
-                m_dot_a = input_cfg.m_dot / n_y
+                m_dot_a = input_cfg.m_dot / (n_y*geom.stacks)
 
                 if gs.cal_air:
                     if cfg.frost_condition:
@@ -329,16 +331,42 @@ class Simulator:
             p_ref_evap = cfg_grid[x0][y0].p_ref
             p_ref_cond = self.HP.p_ref_cond
 
+            m_dot_air = input_cfg.m_dot
+            v_in_air = np.mean([cfg_grid[0][iy].v_a for iy in range(n_y)])
+
+            p1_suction = p_ref_evap
+            h1_suction = cfg_grid[x_end][y_end].h_ref
+
+            p2_discharge = p_ref_cond
+            m_comp, h2_discharge = self.refrigerant.compressor_model(pi=p1_suction, hi=h1_suction, po=p2_discharge, RPM=self.HP.RPM(t))
+
+            p3_cond_out = p_ref_cond
+            h3_cond_out = self.HP.h_ref_cond[-1]
+
+            p4_valve_out = p_ref_evap
+            VPos = self.refrigerant.valve_controller()
+            m_valve, h4_valve_out = self.refrigerant.valve_model(pi=p3_cond_out, hi=h3_cond_out, po=p4_valve_out, VPos=VPos)
+
+            cycle_ph = [
+                [float(p1_suction), float(h1_suction)],
+                [float(p2_discharge), float(h2_discharge)],
+                [float(p3_cond_out), float(h3_cond_out)],
+                [float(p4_valve_out), float(h4_valve_out)],
+            ]
+
             # einfache Zeitsignale im Speicher halten
             self.rec.push(t=t,
                           EER=EER,
                           COP=COP,
                           mean_s_ft=mean_s_ft,
+                          m_dot_air = m_dot_air,
+                          v_in_air = v_in_air,
                           T_out_air_mean=T_outlet_air_mean,
                           T_out_ref=T_ref_out,
                           p_ref_evap=p_ref_evap,
                           p_ref_cond=p_ref_cond,
-                          humidity=humid_l)
+                          humidity=humid_l,
+                          cycle_ph=cycle_ph)
 
             # Push grid snapshot
             if it % gs.store_grid_every_x_it == 0 or t >= gs.t_end:
@@ -349,6 +377,12 @@ class Simulator:
                     st_grid=st_grid,
                     meta={"it": it}
                 )
+
+
+            # Dynamic models
+
+            input_cfg.T_a = dynamic_models.T_a_profile(t, 20.0, 10.0, 120.0, 60.0)
+            #input_cfg.w_amb = dynamic_models.w_amb_profile(t,input_cfg.T_a,input_cfg.p_a,0.0,0.85,120.0,10.0)
 
         # Updating the refrigerant state -------------------------------------------------------------------------------
 

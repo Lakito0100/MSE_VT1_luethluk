@@ -53,7 +53,7 @@ class Refrigerant:
             self,
             fluid=self.fluid,
             P_min=1e3, P_max=20e5, dP=1e4,
-            H_min=2e5, H_max=5e5, dH=1e3,
+            H_min=2e5, H_max=1e6, dH=1e3,
             scheme="central",
             save_path=None,
             load_path=None,
@@ -126,12 +126,24 @@ class Refrigerant:
         return 1000.0
 
     def valve_controller(self):
-        VPos = 50.0
+        VPos = 40.0
         return VPos
 
     def valve_model(self, pi, hi, po, VPos):
+        dp = pi-po
+        if dp <= 0.0:
+            return 0.0, hi
+
         Kv = 0.25
-        rho = PropsSI("D", "P", pi, "H", hi, self.fluid)
+
+        try:
+            rho = PropsSI("D", "P", pi, "H", hi, self.fluid)
+        except Exception:
+            return 0.0, hi
+
+        if not np.isfinite(rho) or rho <= 0.0:
+            return 0.0, hi
+
         U = VPos / 100
         m = Kv * U * np.sqrt(rho * (pi - po) * 1e-2) / 3600
         ho = hi
@@ -139,6 +151,9 @@ class Refrigerant:
         return m, ho
 
     def compressor_model(self, pi, hi, po, RPM):
+        if RPM <= 1e-6:
+            return 0.0, hi
+
         n = 4  # number of cylinders
         bore = 0.06  # bore [m]
         stroke = 0.042  # stroke [m]
