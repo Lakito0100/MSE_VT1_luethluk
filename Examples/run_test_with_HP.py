@@ -15,7 +15,7 @@ sim_run = True
 read_data = True
 
 #air
-T_a = 20.0
+T_a = 10.0
 P = 101325
 RH = 0.1
 v_a = 1.2
@@ -42,7 +42,7 @@ h_ref_cond = PropsSI("H", "T", T_in_water + 273.15, "Q", x_cond, refrigerant)
 geom = FinnTubedHX(
     n_seg_l = 2,        # -
     n_seg_r = 20,        # -
-    stacks = 180,         # -
+    stacks = 100,         # -
     n_fin = 2,           # -
     l_fin = 0.022,          # m
     h_fin = 0.022,          # m
@@ -57,7 +57,7 @@ geom = FinnTubedHX(
 )
 
 gs = GridShape(
-    t_end = 5*60.0,      # s endtime
+    t_end = 60.0,      # s endtime
     dt = 1.0,           # s time step
     store_grid_every_x_it = 10,
 
@@ -246,7 +246,6 @@ plot.plot_logph_cycles(
     cycle_ph=data["cycle_ph"],
     at_time=gs.t_end,
     isotherms=True,
-    grid="none"
 )
 
 plot.plot_logph_cycles(

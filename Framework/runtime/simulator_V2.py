@@ -117,10 +117,8 @@ class Simulator:
                 # upstream nur lesen
                 if ix == 0:
                     cfg_up = input_cfg
-                    st_up  = st
                 else:
                     cfg_up = cfg_grid[ix - 1][iy]
-                    st_up  = st_grid[ix - 1][iy]
 
                 model_e_loc, model_ft_loc = _get_thread_models()
 
@@ -189,34 +187,22 @@ class Simulator:
 
                 if gs.cal_air:
                     if cfg.frost_condition:
-                        if ix == 0:
-                            T_out, w_out, p_out = self.air.propagate_inplace(
-                                input_cfg, cfg, st.s_e[89], st, geom, m_dot_a, 0.0, 0.0, gs.dt
-                            )
-                        else:
-                            m_s_seg = model_ft_loc.segment_mass_flux_air_frost(cfg_grid[ix - 1][iy], geom, st_up, gs)
-                            Q_seg_fs, Q_seg_x0, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_grid[ix - 1][iy], geom, st_up, gs)
-                            T_out, w_out, p_out = self.air.propagate_inplace(
-                                cfg_grid[ix - 1][iy], cfg, st_up.s_ft, st_up, geom, m_dot_a, Q_seg_fs, m_s_seg, gs.dt
-                            )
+                        m_s_seg = model_ft_loc.segment_mass_flux_air_frost(cfg_up, geom, st, gs)
+                        Q_seg_fs, Q_seg_x0, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_up, geom, st, gs)
+                        T_out, w_out, p_out = self.air.propagate_inplace(
+                            cfg_up, cfg, st.s_ft, st, geom, m_dot_a, Q_seg_fs, m_s_seg, gs.dt
+                        )
 
-                        _, Q_seg_x0_n, _ = model_ft_loc.segment_heat_flux_air_frost(cfg, geom, st, gs)
-                        q_for_list = Q_seg_x0_n
+                        q_for_list = Q_seg_x0
                     else:
                         st.T_e[:] = cfg.T_tube
                         st.T_ft[:] = cfg.T_tube
-                        if ix == 0:
-                            T_out, w_out, p_out = self.air.propagate_inplace(
-                                input_cfg, cfg, st.s_e[89], st, geom, m_dot_a, 0.0, 0.0, gs.dt
-                            )
-                        else:
-                            Q_seg_fs, Q_seg_x0, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_grid[ix - 1][iy], geom, st_up, gs)
-                            T_out, w_out, p_out = self.air.propagate_inplace(
-                                cfg_grid[ix - 1][iy], cfg, st_up.s_ft, st_up, geom, m_dot_a, Q_steady, 0.0, gs.dt
-                            )
+                        Q_seg_fs, Q_seg_x0, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_up, geom, st, gs)
+                        T_out, w_out, p_out = self.air.propagate_inplace(
+                            cfg_up, cfg, st.s_ft, st, geom, m_dot_a, Q_steady, 0.0, gs.dt
+                        )
 
-                        _, _, Q_steady_n = model_ft_loc.segment_heat_flux_air_frost(cfg, geom, st, gs)
-                        q_for_list = Q_steady_n
+                        q_for_list = Q_steady
 
                     info["air"] = (T_out, w_out, p_out)
 
@@ -381,7 +367,7 @@ class Simulator:
 
             # Dynamic models
 
-            input_cfg.T_a = dynamic_models.T_a_profile(t, 20.0, 10.0, 120.0, 60.0)
+            input_cfg.T_a = dynamic_models.T_a_profile(t, 10.0, 10.0, 120.0, 60.0)
             #input_cfg.w_amb = dynamic_models.w_amb_profile(t,input_cfg.T_a,input_cfg.p_a,0.0,0.85,120.0,10.0)
 
         # Updating the refrigerant state -------------------------------------------------------------------------------
