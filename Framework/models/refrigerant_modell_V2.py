@@ -618,7 +618,7 @@ class Refrigerant:
             # Derived outputs
             T_ref_K = float(PropsSI("T", "P", P_end, "H", h_k, fluid))
             T_ref_C = T_ref_K - 273.15
-            rho_out = float(PropsSI("D", "P", P_end, "H", h_k, fluid))
+            #rho_out = float(PropsSI("D", "P", P_end, "H", h_k, fluid))
 
             try:
                 x_out = float(PropsSI("Q", "P", P_end, "H", h_k, fluid))
