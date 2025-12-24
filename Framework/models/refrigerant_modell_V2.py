@@ -117,13 +117,13 @@ class Refrigerant:
     # Lokale Korrelation für h_int (Wärmeübergang Wand ↔ Kältemittel)
     # ------------------------------------------------------------------
     def h_int_corr(self):
-        return 5000.0
+        return 8000.0
 
     def h_int_corr_cond(self):
-        return 1000.0
+        return 6000.0
 
     def h_int_corr_water(self):
-        return 1000.0
+        return 4000.0
 
     def valve_controller(self):
         VPos = 40.0
@@ -555,15 +555,56 @@ class Refrigerant:
         Q_cond = float(np.sum(self.h_int_corr_water() * (HP.A_plate / N_condenser) * (T_wall_end - T_water_end)))  # [W]
 
         # Console output
-        #n_inner = len(sol.t) - 1
         n_inner = inner_steps
-        mean_T_ref_evap_K = float(PropsSI("T", "P", P_end, "H", float(np.mean(h_end)), fluid))
-        mean_T_ref_evap_C = mean_T_ref_evap_K - 273.15
-        mean_Tw_C = float(np.mean(Tw_end) - 273.15)
         ref_time = cycl_t1_ref - cycl_t0_ref
 
+        def fmt_sh_sc(P, h, fluid, kind: str) -> str:
+            """
+            kind: "evap" -> report superheat (SH)
+                  "cond" -> report subcooling (SC)
+            """
+            P = float(P)
+            h = float(h)
+
+            # actual temperature from (P,h)
+            T = float(PropsSI("T", "P", P, "H", h, fluid))
+            # saturation temperature at this pressure
+            T_sat = float(PropsSI("T", "P", P, "Q", 0, fluid))  # same as Q=1
+
+            # Try quality -> only defined in 2-phase region
+            x = None
+            try:
+                x_try = float(PropsSI("Q", "P", P, "H", h, fluid))
+                if np.isfinite(x_try) and 0.0 <= x_try <= 1.0:
+                    x = x_try
+            except Exception:
+                pass
+
+            if x is not None:
+                # two-phase: no meaningful SH/SC
+                return f"TP(x={x:.3f}, Tsat={T_sat - 273.15:.2f}°C, T={T - 273.15:.2f}°C)"
+            else:
+                # single-phase: use temperature distance to saturation
+                if kind == "evap":
+                    SH = T - T_sat
+                    if SH >= 0:
+                        return f"SH={SH:.2f}K (Tsat={T_sat - 273.15:.2f}°C, T={T - 273.15:.2f}°C)"
+                    else:
+                        return f"NO-SH(subcooled?)={(-SH):.2f}K (Tsat={T_sat - 273.15:.2f}°C, T={T - 273.15:.2f}°C)"
+                else:  # "cond"
+                    SC = T_sat - T
+                    if SC >= 0:
+                        return f"SC={SC:.2f}K (Tsat={T_sat - 273.15:.2f}°C, T={T - 273.15:.2f}°C)"
+                    else:
+                        return f"NO-SC(superheated?)={(-SC):.2f}K (Tsat={T_sat - 273.15:.2f}°C, T={T - 273.15:.2f}°C)"
+
+        # HX exits: evap outlet is last segment (suction to compressor), cond outlet is last segment (to valve)
+        evap_exit = fmt_sh_sc(P_end, h_end[-1], fluid, kind="evap")
+        cond_exit = fmt_sh_sc(P_cond_end, h_cond_end[-1], fluid, kind="cond")
+
         print(
-            f"HP(it={n_inner}, mean T_evap={mean_T_ref_evap_C:.2f} °C, mean T_tube_evap={mean_Tw_C:.2f} °C, Q_evap={Q_evap:.2f} W, Q_cond={Q_cond:.2f} W, ct={ref_time:.3f} s)"
+            f"HP(it={n_inner}, evap_out={evap_exit}, cond_out={cond_exit}, "
+            f"Q_evap={Q_evap:.2f} W, Q_cond={Q_cond:.2f} W, ct={ref_time:.3f} s)"
         )
 
         # ----------------------------------------------------------

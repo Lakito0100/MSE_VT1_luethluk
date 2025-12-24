@@ -556,7 +556,7 @@ def _grid_style(ax, grid: str):
     else:
         raise ValueError("grid must be 'none', 'dashed', or 'light'.")
 
-def _auto_limits_logph_from_cycle(cycle_ph_sel, *, x_pad_rel=0.15, x_pad_abs=15.0, y_pad_factor=1.35):
+def _auto_limits_logph_from_cycle(cycle_ph_sel, *, x_pad_rel=0.5, x_pad_abs=15.0, y_pad_factor=1.5):
     """
     cycle_ph_sel: (nsel, 4, 2) mit p[Pa], h[J/kg]
     Returns: (xlim_kJkg, ylim_bar)
