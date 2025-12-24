@@ -117,10 +117,8 @@ class Simulator:
                 # upstream nur lesen
                 if ix == 0:
                     cfg_up = input_cfg
-                    st_up  = st
                 else:
                     cfg_up = cfg_grid[ix - 1][iy]
-                    st_up  = st_grid[ix - 1][iy]
 
                 model_e_loc, model_ft_loc = _get_thread_models()
 
@@ -188,68 +186,24 @@ class Simulator:
                 m_dot_a = input_cfg.m_dot / (n_y*geom.stacks)
 
                 if gs.cal_air:
-                    # inlet face for this segment (ix,iy)
-                    cfg_in = input_cfg if ix == 0 else cfg_grid[ix - 1][iy]
-
-                    if cfg.frost_condition and gs.cal_frost:
-                        # compute fluxes for THIS segment using inlet face + local state
-                        m_s_seg = model_ft_loc.segment_mass_flux_air_frost(cfg_in, geom, st, gs)
-                        Q_seg_fs, Q_seg_x0, _ = model_ft_loc.segment_heat_flux_air_frost(cfg_in, geom, st, gs)
-
-                        # propagate air across THIS segment with THESE fluxes
-                        s_block = st.s_e[89] if ix == 0 else st.s_ft
+                    if cfg.frost_condition:
+                        m_s_seg = model_ft_loc.segment_mass_flux_air_frost(cfg_up, geom, st, gs)
+                        Q_seg_fs, Q_seg_x0, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_up, geom, st, gs)
                         T_out, w_out, p_out = self.air.propagate_inplace(
-                            cfg_in, cfg, s_block, st, geom, m_dot_a, Q_seg_fs, m_s_seg, gs.dt
+                            cfg_up, cfg, st.s_ft, st, geom, m_dot_a, Q_seg_fs, m_s_seg, gs.dt
                         )
 
-                        # heat to wall / refrigerant for THIS segment
                         q_for_list = Q_seg_x0
-
                     else:
-                        # no frost: enforce wall temps (your convention)
                         st.T_e[:] = cfg.T_tube
                         st.T_ft[:] = cfg.T_tube
-
-                        # steady heat flux for THIS segment
-                        _, _, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_in, geom, st, gs)
-
+                        Q_seg_fs, Q_seg_x0, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_up, geom, st, gs)
                         T_out, w_out, p_out = self.air.propagate_inplace(
-                            cfg_in, cfg, st.s_e[89], st, geom, m_dot_a, Q_steady, 0.0, gs.dt
+                            cfg_up, cfg, st.s_ft, st, geom, m_dot_a, Q_steady, 0.0, gs.dt
                         )
 
                         q_for_list = Q_steady
 
-                #if gs.cal_air:
-                #    if cfg.frost_condition:
-                #        if ix == 0:
-                #            T_out, w_out, p_out = self.air.propagate_inplace(
-                #                input_cfg, cfg, st.s_e[89], st, geom, m_dot_a, 0.0, 0.0, gs.dt
-                #            )
-                #        else:
-                #            m_s_seg = model_ft_loc.segment_mass_flux_air_frost(cfg_grid[ix - 1][iy], geom, st_up, gs)
-                #            Q_seg_fs, Q_seg_x0, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_grid[ix - 1][iy], geom, st_up, gs)
-                #            T_out, w_out, p_out = self.air.propagate_inplace(
-                #                cfg_grid[ix - 1][iy], cfg, st_up.s_ft, st_up, geom, m_dot_a, Q_seg_fs, m_s_seg, gs.dt
-                #            )
-                #
-                #        _, Q_seg_x0_n, _ = model_ft_loc.segment_heat_flux_air_frost(cfg, geom, st, gs)
-                #        q_for_list = Q_seg_x0_n
-                #    else:
-                #        st.T_e[:] = cfg.T_tube
-                #        st.T_ft[:] = cfg.T_tube
-                #        if ix == 0:
-                #            T_out, w_out, p_out = self.air.propagate_inplace(
-                #                input_cfg, cfg, st.s_e[89], st, geom, m_dot_a, 0.0, 0.0, gs.dt
-                #            )
-                #        else:
-                #            Q_seg_fs, Q_seg_x0, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_grid[ix - 1][iy], geom, st_up, gs)
-                #            T_out, w_out, p_out = self.air.propagate_inplace(
-                #                cfg_grid[ix - 1][iy], cfg, st_up.s_ft, st_up, geom, m_dot_a, Q_steady, 0.0, gs.dt
-                #            )
-                #
-                #        _, _, Q_steady_n = model_ft_loc.segment_heat_flux_air_frost(cfg, geom, st, gs)
-                #        q_for_list = Q_steady_n
-                #
                     info["air"] = (T_out, w_out, p_out)
 
                 return iy, q_for_list, info
