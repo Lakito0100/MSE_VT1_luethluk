@@ -52,7 +52,7 @@ class Refrigerant:
         out = drho_dP_dH(
             self,
             fluid=self.fluid,
-            P_min=1e3, P_max=20e5, dP=1e4,
+            P_min=1e4, P_max=20e5, dP=1e4,
             H_min=2e5, H_max=1e6, dH=1e3,
             scheme="central",
             save_path=None,
@@ -117,17 +117,17 @@ class Refrigerant:
     # Lokale Korrelation für h_int (Wärmeübergang Wand ↔ Kältemittel)
     # ------------------------------------------------------------------
     def h_int_corr(self):
-        return 8000.0
+        return 5000.0
 
     def h_int_corr_cond(self):
-        return 6000.0
+        return 5000.0
 
     def h_int_corr_water(self):
         return 4000.0
 
-    def valve_controller(self):
+    def valve_controller(self,t):
         VPos = 40.0
-        return VPos
+        return min(VPos, 5+2*t)
 
     def valve_model(self, pi, hi, po, VPos):
         dp = pi-po
@@ -164,6 +164,9 @@ class Refrigerant:
 
         eta_v = a[0] * (po / pi) + a[1] * (po / pi) ** 2 + a[2] * (RPM / 60) + a[3]
         eta_is = b[0] * (po / pi) + b[1] * (po / pi) ** 2 + b[2] * (RPM / 60) + b[3] * (po / pi) * (RPM / 60) + b[4]
+
+        eta_v = float(np.clip(eta_v, 0.05, 1.20))
+        eta_is = float(np.clip(eta_is, 0.05, 0.90))
 
         s = PropsSI("S", "P", pi, "H", hi, self.fluid)
         h_is = PropsSI('H', 'P', po, 'S', s, self.fluid)
@@ -233,15 +236,19 @@ class Refrigerant:
              # --- [3] Wall Energy balances ---
              row_w = np.arange(N_condenser + 1, 2 * N_condenser + 1)
              col_w = np.arange(N_condenser + 1, 2 * N_condenser + 1)
-             A_mat[row_w, col_w] = M_wall * self.geometry.c_solid
+             A_mat[row_w, col_w] = M_wall * HP.c_plate
              b_vec[row_w] = (-Q_into_ref) - Q_wall_water
 
              # --- [4] Secondary Fluid Energy balances ---
              row_s = np.arange(2 * N_condenser + 1, 3 * N_condenser + 1)
              col_s = np.arange(2 * N_condenser + 1, 3 * N_condenser + 1)
              A_mat[row_s, col_s] = M_water * HP.c_water
-             b_vec[row_s[:-1]] = m_water * HP.c_water * (T[1:] - T[:-1]) + Q_wall_water[:-1]
-             b_vec[row_s[-1]] = m_water * HP.c_water * (T_in_water - T[-1]) + Q_wall_water[-1]
+             #b_vec[row_s[:-1]] = m_water * HP.c_water * (T[1:] - T[:-1]) + Q_wall_water[:-1]
+             #b_vec[row_s[-1]] = m_water * HP.c_water * (T_in_water - T[-1]) + Q_wall_water[-1]
+             T_prev = np.empty_like(T)
+             T_prev[0] = T_in_water
+             T_prev[1:] = T[:-1]
+             b_vec[row_s] = m_water * HP.c_water * (T_prev - T) + Q_wall_water
 
              x = np.linalg.solve(A_mat, b_vec)
 
@@ -362,41 +369,7 @@ class Refrigerant:
             T_water = y[2+2*N + 2*N_condenser:2+2*N + 3*N_condenser]
 
             m_comp, h_out_comp = self.compressor_model(P, h[-1], P_cond, HP.RPM(t))
-            m_valve, h_out_valve = self.valve_model(P_cond, h_cond[-1], P, self.valve_controller())
-
-            # Per-segment arrays needed for linear solve
-            #V = np.full(N, gp.A_flow * gp.dx, dtype=float)
-            #rho = np.zeros(N, dtype=float)
-            #rhoP = np.zeros(N, dtype=float)
-            #rhoh = np.zeros(N, dtype=float)
-            #Q_into_ref = np.zeros(N, dtype=float)  # + into refrigerant [W]
-            #dTwdt = np.zeros(N, dtype=float)
-            #
-            # Build property and heat-transfer terms
-            #for k, (ix, iy) in enumerate(path):
-            #    h_k = float(h[k])
-            #
-            #    # density and derivatives at (P, h_k)
-            #    rho_k, drho_dP_k, drho_dh_k = self.rho_and_derivs(P, h_k) # Grid interpolator um ableitungen vektorisiert holen
-            #    rho[k] = float(rho_k)
-            #    rhoP[k] = float(drho_dP_k)
-            #    rhoh[k] = float(drho_dh_k)
-            #
-            #    # Refrigerant temperature
-            #    T_ref_K = self.T_from_PH(P, h_k)
-            #
-            #    # Internal HTC
-            #    h_int_k = float(self.h_int_corr())
-            #
-            #    # Heat rate into refrigerant (your convention)
-            #    Q_ref_k = h_int_k * gp.A_inner * (Tw[k] - T_ref_K)  # [W]
-            #    Q_into_ref[k] = Q_ref_k
-            #
-            #    # External heat into wall (from air/frost model)
-            #    Q_f_k = float(Q_seg_list[ix][iy])  # [W] into wall
-            #
-            #    # Wall ODE: (in - out) / (m*c)
-            #    dTwdt[k] = (Q_f_k - Q_ref_k) / (gp.rho_wall * gp.c_wall * gp.V_wall)
+            m_valve, h_out_valve = self.valve_model(P_cond, h_cond[-1], P, self.valve_controller(t))
 
             # --- Evaporator: vectorised ---
             rho, rhoP, rhoh = self.rho_and_derivs_vec(P, h)
@@ -419,42 +392,6 @@ class Refrigerant:
                 rhoP=rhoP,
                 rhoh=rhoh,
             )
-
-            # Per-segment arrays needed for linear solve
-            #V_cond = np.full(N_condenser, HP.A_flow_cond * HP.dx_cond, dtype=float)
-            #rho_cond = np.zeros(N_condenser, dtype=float)
-            #rhoP_cond = np.zeros(N_condenser, dtype=float)
-            #rhoh_cond = np.zeros(N_condenser, dtype=float)
-            #Q_into_ref_cond = np.zeros(N_condenser, dtype=float)  # + into refrigerant [W]
-            #Q_wall_water = np.zeros(N_condenser, dtype=float)
-            #M_water = np.full(N_condenser, HP.A_flow_cond * HP.dx_cond * HP.rho_water, dtype=float)
-            #M_wall = np.full(N_condenser, HP.A_wall * HP.dx_cond * self.geometry.rho_solid, dtype=float)
-            #
-            ## Build property and heat-transfer terms
-            #for k in range(N_condenser):
-            #    h_k = float(h_cond[k])
-            #
-            #    # density and derivatives at (P, h_k)
-            #    rho_k, drho_dP_k, drho_dh_k = self.rho_and_derivs(P_cond, h_k)  # Grid interpolator um ableitungen vektorisiert holen
-            #    rho_cond[k] = float(rho_k)
-            #    rhoP_cond[k] = float(drho_dP_k)
-            #    rhoh_cond[k] = float(drho_dh_k)
-            #
-            #    # Refrigerant temperature
-            #    T_ref_K = self.T_from_PH(P_cond,h_k)
-            #
-            #    # Internal HTC
-            #    h_int_k = float(self.h_int_corr_cond())
-            #    h_int_water = float(self.h_int_corr_water())
-            #
-            #    # Heat rate into refrigerant
-            #    Q_ref_k = h_int_k * HP.A_plate/N_condenser * (T_wall[k] - T_ref_K)  # [W]
-            #    Q_into_ref_cond[k] = Q_ref_k
-            #
-            #    # External heat into wall (from air/frost model)
-            #    Q_wall_water_k = h_int_water * HP.A_plate/N_condenser * (T_wall[k] - T_water[k])  # [W] into wall
-            #
-            #    Q_wall_water[k] = Q_wall_water_k
 
             # --- Condenser: vectorised ---
             rho_cond, rhoP_cond, rhoh_cond = self.rho_and_derivs_vec(P_cond, h_cond)
@@ -637,6 +574,8 @@ class Refrigerant:
         HP.T_water = T_water_end - 273.15
         HP.Q_evap = Q_evap
         HP.Q_cond = Q_cond
+
+        return n_inner
 
 
     def reset_integrator(self):

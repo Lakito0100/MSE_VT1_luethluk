@@ -11,6 +11,7 @@ import time
 from datetime import datetime
 import copy
 import numpy as np
+from CoolProp.CoolProp import PropsSI
 import io
 from contextlib import redirect_stdout
 import os
@@ -48,9 +49,6 @@ class Simulator:
         n_x = len(cfg_grid)
         n_y = len(cfg_grid[0])
 
-        model_e = model.Frostmodell_Edge()
-        model_ft = model.Frostmodell_Finn_and_Tube()
-
         # --- Parallel helpers (thread-local instances) ---
         _tls = threading.local()
 
@@ -66,6 +64,7 @@ class Simulator:
         t = 0.0
         it = 0
         t0_start = time.perf_counter()
+        n_inner = 10
 
         while t <= gs.t_end:
             it += 1
@@ -247,59 +246,6 @@ class Simulator:
             ## --- Refrigerant In/Out ---
             #T_ref_in = cfg_grid[x0][y0].T_ref
             T_ref_out = cfg_grid[x_end][y_end].T_ref
-            #
-            #Q_air = np.full((n_x, n_y), np.nan, dtype=float)
-            #Q_ref = np.full((n_x, n_y), np.nan, dtype=float)
-            #dTlm = np.full((n_x, n_y), np.nan, dtype=float)
-            #U_from_air = np.full((n_x, n_y), np.nan, dtype=float)
-            #U_from_ref = np.full((n_x, n_y), np.nan, dtype=float)
-            #
-            #for ix in range(n_x):
-            #    for iy in range(n_y):
-            #        if ix == 0:
-            #            T_air_in = input_cfg.T_a
-            #            w_air_in = input_cfg.w_amb
-            #        else:
-            #            T_air_in = cfg_grid[ix - 1][iy].T_a
-            #            w_air_in = cfg_grid[ix - 1][iy].w_amb
-            #
-            #        T_air_out = cfg_grid[ix][iy].T_a
-            #        w_air_out = cfg_grid[ix][iy].w_amb
-            #
-            #        h_air_in = HAPropsSI("H", "T", T_air_in + 273.15, "P", cfg_grid[ix][iy].p_a, "W", w_air_in)
-            #        h_air_out = HAPropsSI("H", "T", T_air_out + 273.15, "P", cfg_grid[ix][iy].p_a, "W", w_air_out)
-            #
-            #        Q_seg_air = m_dot_dry_y * (h_air_in - h_air_out)  # [W] positiv: Luft -> HX
-            #        Q_air[ix, iy] = Q_seg_air
-            #
-            #        k = pos_of.get((ix, iy), None)
-            #
-            #        if k == 0:
-            #            # Falls du eine Ref-Inlet-Temperatur im cfg hast, hier einsetzen:
-            #            T_ref_in_k = cfg_grid[ix][iy].T_ref
-            #        else:
-            #            (px, py) = path_ref[k - 1]
-            #            T_ref_in_k = cfg_grid[px][py].T_ref
-            #
-            #        T_ref_out_k = cfg_grid[ix][iy].T_ref
-            #        T_wall = cfg_grid[ix][iy].T_tube
-            #
-            #        area_ref = self.gp.A_inner
-            #        Q_seg_ref = self.refrigerant.h_int_corr() * area_ref * (T_wall - T_ref_out_k)
-            #        Q_ref[ix, iy] = Q_seg_ref
-            #
-            #        # --- lokales LMTD ---
-            #        dT1 = T_air_in - T_ref_out_k
-            #        dT2 = T_air_out - T_ref_in_k
-            #        with np.errstate(divide="ignore", invalid="ignore"):
-            #            dT_lm = (dT1 - dT2) / np.log(dT1 / dT2)
-            #        dTlm[ix, iy] = dT_lm
-            #
-            #        area_air = geom.A_one_segment()
-            #
-            #        with np.errstate(divide="ignore", invalid="ignore"):
-            #            U_from_air[ix,iy] = Q_seg_air/(area_air*dT_lm)
-            #            U_from_ref[ix, iy] = Q_seg_ref / (area_ref * dT_lm)
 
             #Calculating the COP
             W_comp = self.HP.W_comp
@@ -330,7 +276,7 @@ class Simulator:
             h3_cond_out = self.HP.h_ref_cond[-1]
 
             p4_valve_out = p_ref_evap
-            VPos = self.refrigerant.valve_controller()
+            VPos = self.refrigerant.valve_controller(t)
             m_valve, h4_valve_out = self.refrigerant.valve_model(pi=p3_cond_out, hi=h3_cond_out, po=p4_valve_out, VPos=VPos)
 
             cycle_ph = [
@@ -372,27 +318,44 @@ class Simulator:
 
         # Updating the refrigerant state -------------------------------------------------------------------------------
 
+            dt_step_n = gs.dt
+
             if gs.cal_ref:
                 print('Calculating the refrigerant state for the next time step in all segments...')
 
-                self.refrigerant.update_all_segments(
+                n_inner = self.refrigerant.update_all_segments(
                     input_cfg,  # inlet BC
                     cfg_grid,
                     st_grid,
                     geom,
                     Q_seg_x0_list,  # this is Q_f per segment
                     time=t,
-                    dt=gs.dt,
+                    dt=dt_step_n,
                 )
+
+                # Adaptiv time step:
+                # parameters
+                it_target = 10
+                k = 0.5  # aggressiveness
+                fac_min, fac_max = 0.5, 2.0  # limit per outer step
+                dt_min, dt_max = 0.02, 5.0  # absolute bounds
+
+                fac = (it_target / n_inner) ** k
+                fac = max(fac_min, min(fac_max, fac))
+
+                gs.dt *= fac
+                gs.dt = max(dt_min, min(dt_max, gs.dt))
+
+                print(f"Updating dt for the next time step to dt={gs.dt:.2f} s")
 
             t_iteration_end = time.perf_counter()
             time_iteration = t_iteration_end - t_iteration_start
-            time_remaining_est = time_iteration*(gs.t_end - t)/gs.dt
+            time_remaining_est = time_iteration * (gs.t_end - t) / gs.dt
 
             print(f"Cycle time for time step {it}: {time_iteration:.1f} s\n"
-                  f"\033[94mTime remaining: {time_remaining_est/60.0:.1f} min\033[0m")
+                  f"\033[94mTime remaining: {time_remaining_est / 60.0:.1f} min\033[0m")
 
-            t += gs.dt
+            t += dt_step_n
             print(
                 "--------------------------------------------------------------------------------------------------"
             )
