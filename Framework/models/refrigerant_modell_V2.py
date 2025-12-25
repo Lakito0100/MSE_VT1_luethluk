@@ -127,7 +127,7 @@ class Refrigerant:
 
     def valve_controller(self,t):
         VPos = 40.0
-        return VPos
+        return min(VPos, 5+2*t)
 
     def valve_model(self, pi, hi, po, VPos):
         dp = pi-po
@@ -236,15 +236,19 @@ class Refrigerant:
              # --- [3] Wall Energy balances ---
              row_w = np.arange(N_condenser + 1, 2 * N_condenser + 1)
              col_w = np.arange(N_condenser + 1, 2 * N_condenser + 1)
-             A_mat[row_w, col_w] = M_wall * self.geometry.c_solid
+             A_mat[row_w, col_w] = M_wall * HP.c_plate
              b_vec[row_w] = (-Q_into_ref) - Q_wall_water
 
              # --- [4] Secondary Fluid Energy balances ---
              row_s = np.arange(2 * N_condenser + 1, 3 * N_condenser + 1)
              col_s = np.arange(2 * N_condenser + 1, 3 * N_condenser + 1)
              A_mat[row_s, col_s] = M_water * HP.c_water
-             b_vec[row_s[:-1]] = m_water * HP.c_water * (T[1:] - T[:-1]) + Q_wall_water[:-1]
-             b_vec[row_s[-1]] = m_water * HP.c_water * (T_in_water - T[-1]) + Q_wall_water[-1]
+             #b_vec[row_s[:-1]] = m_water * HP.c_water * (T[1:] - T[:-1]) + Q_wall_water[:-1]
+             #b_vec[row_s[-1]] = m_water * HP.c_water * (T_in_water - T[-1]) + Q_wall_water[-1]
+             T_prev = np.empty_like(T)
+             T_prev[0] = T_in_water
+             T_prev[1:] = T[:-1]
+             b_vec[row_s] = m_water * HP.c_water * (T_prev - T) + Q_wall_water
 
              x = np.linalg.solve(A_mat, b_vec)
 
