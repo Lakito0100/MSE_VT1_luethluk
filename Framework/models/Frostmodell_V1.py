@@ -334,7 +334,7 @@ class Frostmodell_Edge:
 
             # Unterrelaxation aus Stabilitätsgründen
 
-            omega_T = 1.0 # save stabil: 0.1
+            omega_T = 0.1 # save stabil: 0.1
             omega_w = 1.0
 
             T_f_old[:] = (1 - omega_T) * T_f_old + omega_T * T_f_new
