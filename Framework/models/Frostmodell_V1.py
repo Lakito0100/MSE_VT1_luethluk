@@ -8,10 +8,28 @@ from CoolProp.HumidAirProp import HAPropsSI, HAProps_Aux
 class Frostmodell_Edge:
 
     @staticmethod
-    def w_sat_coolprop(Tf_C: float, p_Pa: float) -> float:
-        Tf_K = Tf_C + 273.15
-        p_ws, _units = HAProps_Aux("p_ws", Tf_K, p_Pa, 0.0)
-        return 0.621945 * p_ws / (p_Pa - p_ws)
+    def w_sat_coolprop(Tf_C, p_Pa):
+        """
+        Tf_C: float oder array-like (°C)
+        p_Pa: float (Pa)
+        Returns: float oder np.ndarray
+        """
+        Tf_C_arr = np.asarray(Tf_C)
+
+        # scalar fast-path
+        if Tf_C_arr.ndim == 0:
+            Tf_K = float(Tf_C_arr) + 273.15
+            p_ws, _units = HAProps_Aux("p_ws", Tf_K, float(p_Pa), 0.0)
+            return 0.621945 * p_ws / (float(p_Pa) - p_ws)
+
+        # vector path: loop scalars (CoolProp call is scalar-only)
+        out = np.empty_like(Tf_C_arr, dtype=float)
+        p = float(p_Pa)
+        for i, tC in np.ndenumerate(Tf_C_arr):
+            Tf_K = float(tC) + 273.15
+            p_ws, _units = HAProps_Aux("p_ws", Tf_K, p, 0.0)
+            out[i] = 0.621945 * p_ws / (p - p_ws)
+        return out
         #return HAPropsSI("W", "T", Tf_K, "P", p_Pa, "R", 1.0)
 
     @staticmethod
@@ -71,7 +89,7 @@ class Frostmodell_Edge:
     def New_edge_state_seg_at_90(self, cfg, geom, st, gs, tol=1e-6, niter=1000):
         it = 0
         res_T = res_w = np.inf
-        j = 89
+        j = gs.ntheta-1
 
         # Arbeitskopien
         T_f_old = np.asarray(st.T_e[:,j], dtype=float).copy()
@@ -112,70 +130,169 @@ class Frostmodell_Edge:
             q_sens = h * (cfg.T_a - Tfs)  # (9.9)
             q_tot = q_sens + cfg.h_sub * m_delta  # (9.16)
 
-            # Systemmatrizen für w und T
-            A_w = lil_matrix((N, N), dtype=float)
-            b_w = np.zeros(N)
-            A_T = lil_matrix((N, N), dtype=float)
-            b_T = np.zeros(N)
+            # Vectorized ---------------------------------------------------------------
+            # --- RHS ---
+            b_w = np.zeros(N, dtype=float)
+            b_T = np.zeros(N, dtype=float)
 
-            for i in range(N):
-                if i == 0:
-                    # Wand BC
-                    # w: Neumann dw/dr = 0  -> w1 - w0 = 0
-                    A_w[i, i] = -1.0
-                    A_w[i, i+1] = 1.0
-                    b_w[i] = 0.0
+            # --- diagonals ---
+            lower_w = np.zeros(N - 1, dtype=float)  # A[i, i-1], i=1..N-1  -> lower_w[i-1]
+            main_w = np.zeros(N, dtype=float)  # A[i, i]
+            upper_w = np.zeros(N - 1, dtype=float)  # A[i, i+1], i=0..N-2  -> upper_w[i]
 
-                    # T: Dirichlet T = T_w
-                    A_T[i, i] = 1.0
-                    b_T[i] = cfg.T_tube
+            lower_T = np.zeros(N - 1, dtype=float)
+            main_T = np.zeros(N, dtype=float)
+            upper_T = np.zeros(N - 1, dtype=float)
 
-                elif i == N - 1:
-                    # Oberfläche w: Dirichlet w_fs = w_sat(T_fs)
-                    A_w[i, i] = 1.0
-                    b_w[i] = wfs_sat
+            # =========================
+            # Boundary conditions
+            # =========================
 
-                    # Oberfläche T: k (T_fs - T_{N-1}) / dr = q_tot
-                    k_s = self.k_eff(st, -1, j)
-                    A_T[i, i] = k_s / dr
-                    A_T[i, i - 1] = -k_s / dr
-                    b_T[i] = q_tot
+            # i = 0
+            # w: Neumann dw/dr = 0 -> w1 - w0 = 0
+            main_w[0] = -1.0
+            upper_w[0] = 1.0
+            b_w[0] = 0.0
 
-                else:
-                    r_i = r[i]
-                    rho_ij = rho_a[i]
+            # T: Dirichlet T = T_w
+            main_T[0] = 1.0
+            b_T[0] = cfg.T_tube
 
-                    # ---- Massen-Gleichung (w) ----
-                    Deff_ij = self.D_eff(cfg, st, i, j)
-                    Aprop = Deff_ij * rho_ij  # "D_eff * rho_a" am Knoten i
+            # i = N-1
+            # w: Dirichlet w_fs = wfs_sat
+            main_w[-1] = 1.0
+            b_w[-1] = wfs_sat
+            lower_w[-1] = 0.0  # last row must not couple to w_{N-2}
 
-                    alpha_w = Aprop * (1.0 / dr ** 2 + 1.0 / (2.0 * r_i * dr))
-                    beta_w = -2.0 * Aprop / dr ** 2 - cfg.C * rho_ij
-                    gamma_w = Aprop * (1.0 / dr ** 2 - 1.0 / (2.0 * r_i * dr))
+            # T: Neumann at surface: k (T_fs - T_{N-1})/dr = q_tot
+            k_s = self.k_eff(st, -1, j)
+            main_T[-1] = k_s / dr
+            lower_T[-1] = -k_s / dr
+            b_T[-1] = q_tot
 
-                    A_w[i, i + 1] = alpha_w
-                    A_w[i, i] = beta_w
-                    A_w[i, i - 1] = gamma_w
+            # =========================
+            # Interior (vectorized)
+            # =========================
+            idx = np.arange(1, N - 1)  # 1..N-2
+            ri = r[idx]
+            rho = rho_a[idx]
 
-                    w_sat_i = self.w_sat_coolprop(T_f_old[i], cfg.p_a)
-                    b_w[i] = -cfg.C * rho_ij * w_sat_i
+            inv_dr2 = 1.0 / (dr * dr)
+            inv_2rdr = 1.0 / (2.0 * ri * dr)
 
-                    # ---- Energie-Gleichung (T) ----
-                    k_i = self.k_eff(st, i, j)
+            # ---- w equation ----
+            Deff = self.D_eff(cfg, st, idx, j)  # if vectorized
 
-                    alpha_T = k_i * (1.0 / dr ** 2 + 1.0 / (2.0 * r_i * dr))
-                    beta_T = -2.0 * k_i / dr ** 2
-                    gamma_T = k_i * (1.0 / dr ** 2 - 1.0 / (2.0 * r_i * dr))
+            Aprop = Deff * rho
 
-                    A_T[i, i + 1] = alpha_T
-                    A_T[i, i] = beta_T
-                    A_T[i, i - 1] = gamma_T
+            alpha_w = Aprop * (inv_dr2 + inv_2rdr)
+            beta_w = -2.0 * Aprop * inv_dr2 - cfg.C * rho
+            gamma_w = Aprop * (inv_dr2 - inv_2rdr)
 
-                    b_T[i] = -cfg.isv * cfg.C * rho_ij * (w_f_old[i] - w_sat_i)
+            upper_w[idx] = alpha_w  # row i, col i+1
+            main_w[idx] = beta_w
+            lower_w[idx - 1] = gamma_w  # row i, col i-1 stored at i-1
+
+            T_old_vec = T_f_old[idx]
+            w_sat_i = self.w_sat_coolprop(T_old_vec, cfg.p_a)
+
+            b_w[idx] = -cfg.C * rho * w_sat_i
+
+            # ---- T equation ----
+            k_i = self.k_eff(st, idx, j)
+
+            alpha_T = k_i * (inv_dr2 + inv_2rdr)
+            beta_T = -2.0 * k_i * inv_dr2
+            gamma_T = k_i * (inv_dr2 - inv_2rdr)
+
+            upper_T[idx] = alpha_T
+            main_T[idx] = beta_T
+            lower_T[idx - 1] = gamma_T
+
+            b_T[idx] = -cfg.isv * cfg.C * rho * (w_f_old[idx] - w_sat_i)
+
+            # =========================
+            # Build CSR matrices from diagonals
+            # =========================
+            rows_main = np.arange(N)
+            cols_main = rows_main
+
+            rows_upper = np.arange(N - 1)
+            cols_upper = rows_upper + 1
+
+            rows_lower = np.arange(1, N)
+            cols_lower = rows_lower - 1
+
+            # w-matrix
+            data_w = np.concatenate([main_w, upper_w, lower_w])
+            rows_w = np.concatenate([rows_main, rows_upper, rows_lower])
+            cols_w = np.concatenate([cols_main, cols_upper, cols_lower])
+            A_w = csr_matrix((data_w, (rows_w, cols_w)), shape=(N, N))
+
+            # T-matrix
+            data_T = np.concatenate([main_T, upper_T, lower_T])
+            rows_T = np.concatenate([rows_main, rows_upper, rows_lower])
+            cols_T = np.concatenate([cols_main, cols_upper, cols_lower])
+            A_T = csr_matrix((data_T, (rows_T, cols_T)), shape=(N, N))
+
+            #for i in range(N):
+            #    if i == 0:
+            #        # Wand BC
+            #        # w: Neumann dw/dr = 0  -> w1 - w0 = 0
+            #        A_w[i, i] = -1.0
+            #        A_w[i, i+1] = 1.0
+            #        b_w[i] = 0.0
+            #
+            #        # T: Dirichlet T = T_w
+            #        A_T[i, i] = 1.0
+            #        b_T[i] = cfg.T_tube
+            #
+            #    elif i == N - 1:
+            #        # Oberfläche w: Dirichlet w_fs = w_sat(T_fs)
+            #        A_w[i, i] = 1.0
+            #        b_w[i] = wfs_sat
+            #
+            #        # Oberfläche T: k (T_fs - T_{N-1}) / dr = q_tot
+            #        k_s = self.k_eff(st, -1, j)
+            #        A_T[i, i] = k_s / dr
+            #        A_T[i, i - 1] = -k_s / dr
+            #        b_T[i] = q_tot
+            #
+            #    else:
+            #        r_i = r[i]
+            #        rho_ij = rho_a[i]
+            #
+            #        # ---- Massen-Gleichung (w) ----
+            #        Deff_ij = self.D_eff(cfg, st, i, j)
+            #        Aprop = Deff_ij * rho_ij  # "D_eff * rho_a" am Knoten i
+            #
+            #        alpha_w = Aprop * (1.0 / dr ** 2 + 1.0 / (2.0 * r_i * dr))
+            #        beta_w = -2.0 * Aprop / dr ** 2 - cfg.C * rho_ij
+            #        gamma_w = Aprop * (1.0 / dr ** 2 - 1.0 / (2.0 * r_i * dr))
+            #
+            #        A_w[i, i + 1] = alpha_w
+            #        A_w[i, i] = beta_w
+            #        A_w[i, i - 1] = gamma_w
+            #
+            #        w_sat_i = self.w_sat_coolprop(T_f_old[i], cfg.p_a)
+            #        b_w[i] = -cfg.C * rho_ij * w_sat_i
+            #
+            #        # ---- Energie-Gleichung (T) ----
+            #        k_i = self.k_eff(st, i, j)
+            #
+            #        alpha_T = k_i * (1.0 / dr ** 2 + 1.0 / (2.0 * r_i * dr))
+            #        beta_T = -2.0 * k_i / dr ** 2
+            #        gamma_T = k_i * (1.0 / dr ** 2 - 1.0 / (2.0 * r_i * dr))
+            #
+            #        A_T[i, i + 1] = alpha_T
+            #        A_T[i, i] = beta_T
+            #        A_T[i, i - 1] = gamma_T
+            #
+            #        b_T[i] = -cfg.isv * cfg.C * rho_ij * (w_f_old[i] - w_sat_i)
 
             # lineare Systeme lösen
-            T_f_new[:] = spsolve(csr_matrix(A_T), b_T)
-            w_f_new[:] = spsolve(csr_matrix(A_w), b_w)
+            T_f_new[:] = spsolve(A_T, b_T)
+            w_f_new[:] = spsolve(A_w, b_w)
 
             # Konvergenzkriterium
             res_T = np.max(np.abs(T_f_new - T_f_old))
@@ -374,10 +491,28 @@ class Frostmodell_Edge:
 class Frostmodell_Finn_and_Tube:
 
     @staticmethod
-    def w_sat_coolprop(Tf_C: float, p_Pa: float) -> float:
-        Tf_K = Tf_C + 273.15
-        p_ws, _units = HAProps_Aux("p_ws", Tf_K, p_Pa, 0.0)
-        return 0.621945 * p_ws / (p_Pa - p_ws)
+    def w_sat_coolprop(Tf_C, p_Pa):
+        """
+        Tf_C: float oder array-like (°C)
+        p_Pa: float (Pa)
+        Returns: float oder np.ndarray
+        """
+        Tf_C_arr = np.asarray(Tf_C)
+
+        # scalar fast-path
+        if Tf_C_arr.ndim == 0:
+            Tf_K = float(Tf_C_arr) + 273.15
+            p_ws, _units = HAProps_Aux("p_ws", Tf_K, float(p_Pa), 0.0)
+            return 0.621945 * p_ws / (float(p_Pa) - p_ws)
+
+        # vector path: loop scalars (CoolProp call is scalar-only)
+        out = np.empty_like(Tf_C_arr, dtype=float)
+        p = float(p_Pa)
+        for i, tC in np.ndenumerate(Tf_C_arr):
+            Tf_K = float(tC) + 273.15
+            p_ws, _units = HAProps_Aux("p_ws", Tf_K, p, 0.0)
+            out[i] = 0.621945 * p_ws / (p - p_ws)
+        return out
         #return HAPropsSI("W", "T", Tf_K, "P", p_Pa, "R", 1.0)
 
     @staticmethod
@@ -445,10 +580,10 @@ class Frostmodell_Finn_and_Tube:
             rho_a = st.rho_a_ft
 
             # Systemmatrizen
-            A_w = lil_matrix((N, N), dtype=float)
-            b_w = np.zeros(N)
-            A_T = lil_matrix((N, N), dtype=float)
-            b_T = np.zeros(N)
+            #A_w = lil_matrix((N, N), dtype=float)
+            #b_w = np.zeros(N)
+            #A_T = lil_matrix((N, N), dtype=float)
+            #b_T = np.zeros(N)
 
             # Temperatur- und Sättigungszustand an der Oberfläche
             Tfs = float(T_f_old[-1])
@@ -482,62 +617,163 @@ class Frostmodell_Finn_and_Tube:
             # Temperatur an der Frosoberfläche
             h_0 = self.alpha_tube(cfg,geom)
             mue_fin = geom.mue_fin(h_0)
-            T_s_fs = cfg.T_a - (mue_fin*geom.A_fin_one_segment())*(cfg.T_a-cfg.T_tube)/(geom.A_one_segment())
+            #T_s_fs = cfg.T_a - (mue_fin*geom.A_fin_one_segment())*(cfg.T_a-cfg.T_tube)/(geom.A_one_segment())
 
-            for i in range(N):
-                if i == 0:
-                    # x = 0: kalte Wand/Tube -> Dirichlet T = T_s_fs
-                    # w: Neumann dw/dx = 0 -> w1 - w0 = 0
-                    A_w[i, i] = -1.0
-                    A_w[i, i+1] = 1.0
-                    b_w[i] = 0.0
+            # --- RHS ---
+            b_w = np.zeros(N, dtype=float)
+            b_T = np.zeros(N, dtype=float)
 
-                    A_T[i, i] = 1.0
-                    b_T[i] = T_s_fs
+            # --- diagonals ---
+            lower_w = np.zeros(N - 1, dtype=float)  # A[i, i-1] stored at lower_w[i-1]
+            main_w = np.zeros(N, dtype=float)  # A[i, i]
+            upper_w = np.zeros(N - 1, dtype=float)  # A[i, i+1] stored at upper_w[i]
 
-                elif i == N - 1:
-                    # x = δ_f: Frostoberfläche zur Luft
-                    # w: Dirichlet-Bedingung
-                    A_w[i, i] = 1.0
-                    b_w[i] = wfs_sat
+            lower_T = np.zeros(N - 1, dtype=float)
+            main_T = np.zeros(N, dtype=float)
+            upper_T = np.zeros(N - 1, dtype=float)
 
-                    k_eff_i = self.k_f(st, i)
-                    A_T[i, i] = k_eff_i / dx
-                    A_T[i, i-1] = -k_eff_i / dx
-                    b_T[i] = q_tot_fs
+            inv_dx2 = 1.0 / (dx * dx)
 
-                else:
-                    # innerer Knoten 0 < i < N-1
-                    rho_a_i = rho_a[i]
-                    Deff_i = self.D_eff(cfg, st, i)
-                    k_eff_i = self.k_f(st, i)
+            # =========================
+            # Boundary conditions
+            # =========================
 
-                    # ---- Massen-Gleichung (w) ----
-                    alpha_w = Deff_i * rho_a_i / (dx ** 2)
-                    gamma_w = Deff_i * rho_a_i / (dx ** 2)
-                    beta_w = -2.0 * Deff_i * rho_a_i / (dx ** 2) - cfg.C * rho_a_i
+            # i = 0
+            # w: Neumann dw/dx = 0 -> w1 - w0 = 0
+            main_w[0] = -1.0
+            upper_w[0] = 1.0
+            b_w[0] = 0.0
 
-                    A_w[i, i + 1] = alpha_w
-                    A_w[i, i] = beta_w
-                    A_w[i, i - 1] = gamma_w
+            # T: Dirichlet T = T_tube
+            main_T[0] = 1.0
+            b_T[0] = cfg.T_tube
 
-                    w_sat_i = self.w_sat_coolprop(T_f_old[i], cfg.p_a)
-                    b_w[i] = -cfg.C * rho_a_i * w_sat_i
+            # i = N-1
+            # w: Dirichlet w_fs = wfs_sat
+            main_w[-1] = 1.0
+            b_w[-1] = wfs_sat
+            lower_w[-1] = 0.0  # last row must not couple to w_{N-2}
 
-                    # ---- Energie-Gleichung (T) ----
-                    alpha_T = k_eff_i / (dx ** 2)
-                    gamma_T = k_eff_i / (dx ** 2)
-                    beta_T = -2.0 * k_eff_i / (dx ** 2)
+            # T: Neumann at surface: k (T_fs - T_{N-1})/dx = q_tot_fs
+            k_eff_s = self.k_f(st, N - 1)
+            main_T[-1] = k_eff_s / dx
+            lower_T[-1] = -k_eff_s / dx
+            b_T[-1] = q_tot_fs
 
-                    A_T[i, i + 1] = alpha_T
-                    A_T[i, i] = beta_T
-                    A_T[i, i - 1] = gamma_T
+            # =========================
+            # Interior (vectorized)
+            # =========================
+            idx = np.arange(1, N - 1)  # 1..N-2
+            rho = rho_a[idx]
 
-                    b_T[i] = -cfg.isv * cfg.C * rho_a_i * (w_f_old[i] - w_sat_i)
+            # Deff, k_eff vectors
+            Deff = self.D_eff(cfg, st, idx)  # if vectorized
+
+            k_eff = self.k_f(st, idx)  # if vectorized
+
+            Aprop = Deff * rho  # Deff_i * rho_a_i
+
+            alpha_w = Aprop * inv_dx2
+            beta_w = -2.0 * Aprop * inv_dx2 - cfg.C * rho
+            gamma_w = Aprop * inv_dx2  # same as alpha_w here
+
+            upper_w[idx] = alpha_w
+            main_w[idx] = beta_w
+            lower_w[idx - 1] = gamma_w
+
+            # saturation w at interior nodes
+            T_old_vec = T_f_old[idx]
+            w_sat_i = self.w_sat_coolprop(T_old_vec, cfg.p_a)
+
+            b_w[idx] = -cfg.C * rho * w_sat_i
+
+            # ---- T equation ----
+            alpha_T = k_eff * inv_dx2
+            beta_T = -2.0 * k_eff * inv_dx2
+            gamma_T = k_eff * inv_dx2
+
+            upper_T[idx] = alpha_T
+            main_T[idx] = beta_T
+            lower_T[idx - 1] = gamma_T
+
+            b_T[idx] = -cfg.isv * cfg.C * rho * (w_f_old[idx] - w_sat_i)
+
+            # =========================
+            # Build CSR matrices (no new imports) + solve
+            # =========================
+            rows_main = np.arange(N)
+            cols_main = rows_main
+
+            rows_upper = np.arange(N - 1)
+            cols_upper = rows_upper + 1
+
+            rows_lower = np.arange(1, N)
+            cols_lower = rows_lower - 1
+
+            data_w = np.concatenate([main_w, upper_w, lower_w])
+            rows_w = np.concatenate([rows_main, rows_upper, rows_lower])
+            cols_w = np.concatenate([cols_main, cols_upper, cols_lower])
+            A_w = csr_matrix((data_w, (rows_w, cols_w)), shape=(N, N))
+
+            data_T = np.concatenate([main_T, upper_T, lower_T])
+            rows_T = np.concatenate([rows_main, rows_upper, rows_lower])
+            cols_T = np.concatenate([cols_main, cols_upper, cols_lower])
+            A_T = csr_matrix((data_T, (rows_T, cols_T)), shape=(N, N))
+
+            #for i in range(N):
+            #    if i == 0:
+            #        # x = 0: kalte Wand/Tube -> Dirichlet T = T_s_fs
+            #        # w: Neumann dw/dx = 0 -> w1 - w0 = 0
+            #        A_w[i, i] = -1.0
+            #        A_w[i, i+1] = 1.0
+            #        b_w[i] = 0.0
+            #
+            #        A_T[i, i] = 1.0
+            #        b_T[i] = cfg.T_tube
+            #
+            #    elif i == N - 1:
+            #        # x = δ_f: Frostoberfläche zur Luft
+            #        # w: Dirichlet-Bedingung
+            #        A_w[i, i] = 1.0
+            #        b_w[i] = wfs_sat
+            #
+            #        k_eff_i = self.k_f(st, i)
+            #        A_T[i, i] = k_eff_i / dx
+            #        A_T[i, i-1] = -k_eff_i / dx
+            #        b_T[i] = q_tot_fs
+            #
+            #    else:
+            #        # innerer Knoten 0 < i < N-1
+            #        rho_a_i = rho_a[i]
+            #        Deff_i = self.D_eff(cfg, st, i)
+            #        k_eff_i = self.k_f(st, i)
+            #
+            #        # ---- Massen-Gleichung (w) ----
+            #        alpha_w = Deff_i * rho_a_i / (dx ** 2)
+            #        gamma_w = Deff_i * rho_a_i / (dx ** 2)
+            #        beta_w = -2.0 * Deff_i * rho_a_i / (dx ** 2) - cfg.C * rho_a_i
+            #
+            #        A_w[i, i + 1] = alpha_w
+            #        A_w[i, i] = beta_w
+            #        A_w[i, i - 1] = gamma_w
+            #
+            #        w_sat_i = self.w_sat_coolprop(T_f_old[i], cfg.p_a)
+            #        b_w[i] = -cfg.C * rho_a_i * w_sat_i
+            #
+            #        # ---- Energie-Gleichung (T) ----
+            #        alpha_T = k_eff_i / (dx ** 2)
+            #        gamma_T = k_eff_i / (dx ** 2)
+            #        beta_T = -2.0 * k_eff_i / (dx ** 2)
+            #
+            #        A_T[i, i + 1] = alpha_T
+            #        A_T[i, i] = beta_T
+            #        A_T[i, i - 1] = gamma_T
+            #
+            #        b_T[i] = -cfg.isv * cfg.C * rho_a_i * (w_f_old[i] - w_sat_i)
 
             # lineare Systeme lösen
-            T_f_new[:] = spsolve(csr_matrix(A_T), b_T)
-            w_f_new[:] = spsolve(csr_matrix(A_w), b_w)
+            T_f_new[:] = spsolve(A_T, b_T)
+            w_f_new[:] = spsolve(A_w, b_w)
 
             # Konvergenzbewertung
             res_T = np.max(np.abs(T_f_new - T_f_old))
