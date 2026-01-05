@@ -18,7 +18,6 @@ class Air:
         return bool(getattr(cfg, "use_fan", False))
 
     def _n_parallel_air_paths(self, geom) -> int:
-        # n_seg_l entspricht bei dir der Aufteilung über iy (du teilst im Simulator durch n_y)
         n_y = geom.n_seg_r
         stacks = geom.stacks
         return max(1, n_y * stacks)
