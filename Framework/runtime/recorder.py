@@ -75,20 +75,6 @@ class ResultRecorder:
         row.update(extras)
         self.push(**row)
 
-
-    def _to_serializable(self, obj):
-        """Deine Version – hier nur zur Vollständigkeit."""
-        if is_dataclass(obj):
-            d = asdict(obj)
-            return {k: self._to_serializable(v) for k, v in d.items()}
-        if isinstance(obj, np.ndarray):
-            return obj.tolist()
-        if isinstance(obj, (list, tuple)):
-            return [self._to_serializable(v) for v in obj]
-        if isinstance(obj, dict):
-            return {k: self._to_serializable(v) for k, v in obj.items()}
-        return obj
-
     def push_grid_snapshot(self, t, cfg_grid, st_grid, meta=None):
         """
         Speichert einen Snapshot des gesamten Segment-Grids zum Zeitpunkt t.

@@ -92,6 +92,6 @@ class HeatPump:
     W_comp: float = 0.001
 
     def RPM(self,t):
-        return min(1500,50*t)
+        return min(1500,100*t)
 
 
