@@ -66,9 +66,10 @@ class HeatPump:
     T_water: np.ndarray
 
     A_flow_cond: float      # cross-sectional flow area [m2]
-    dx_cond: float          # L/N_cond
     t_plate: float          # Plate thickness
     height_cond: float      # heat exchanger height
+    length_cond: float      # heat exchanger height
+    n_plates: int           # number of plates
     A_plate: float          # Condenser heat transfer area [m2]
     c_plate: float
     rho_plate: float
@@ -76,9 +77,12 @@ class HeatPump:
 
     #water
     T_in_water: float
-    m_water: float
+    m_water: float          # water mass flow
     c_water: float
     rho_water: float
+
+    # controller
+    use_controller: bool
 
     # Heat flows
     Q_cond: float = 0.0
@@ -88,6 +92,6 @@ class HeatPump:
     W_comp: float = 0.001
 
     def RPM(self,t):
-        return min(1500,100*t)
+        return min(1500,50*t)
 
 

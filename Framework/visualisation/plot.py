@@ -88,7 +88,8 @@ def plot_any(
     marker='o',
     line_kwargs=None,
     label=None,          # für 1 Kurve
-    labels=None          # für mehrere Kurven (z.B. 4 Spalten)
+    labels=None,         # für mehrere Kurven (z.B. 4 Spalten)
+    ylimitter=None
 ):
 
     x = np.asarray(x)
@@ -149,6 +150,9 @@ def plot_any(
         # Labels später per ax.legend(labels) setzen
     else:
         raise ValueError(f"y_line must be 1D or 2D, got shape {y_line.shape}")
+
+    if ylimitter is not None:
+        ax.set_ylim(ylimitter[0], ylimitter[1])
 
     ax.set_xlabel(xlabel if xlabel else "x")
     ax.set_ylabel(ylabel if ylabel else "y")
@@ -669,7 +673,6 @@ def plot_logph_cycles(
 
     t = np.asarray(t, dtype=float).ravel()
 
-    # Robust: Liste -> stack wie in deinen anderen Objekt-Plots
     arr = np.asarray(cycle_ph, dtype=object)
     if arr.ndim == 1:
         arr = np.stack([np.asarray(row, dtype=float) for row in arr], axis=0)
