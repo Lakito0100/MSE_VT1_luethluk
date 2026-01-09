@@ -2,6 +2,7 @@ from time import perf_counter
 from dataclasses import dataclass
 import numpy as np
 from scipy.integrate import solve_ivp, BDF
+from scipy.interpolate import interp1d
 import CoolProp.CoolProp as CP
 from CoolProp.CoolProp import PropsSI
 from Framework.models.derivatives_of_rho import drho_dP_dH
@@ -68,12 +69,24 @@ class Refrigerant:
         self._drho_dP_interp = out["drho_dP_interp"]
         self._drho_dH_interp = out["drho_dH_interp"]
         self._T_interp = out.get("T_interp", None)
+        self._T_sat_interp = None
 
         # Grenzen zum Clipping (damit Interpolator nicht NaN liefert)
         self._P_min = float(out["P_vec"][0]);
         self._P_max = float(out["P_vec"][-1])
         self._H_min = float(out["H_vec"][0]);
         self._H_max = float(out["H_vec"][-1])
+
+        self._P_vec = np.asarray(out["P_vec"], dtype=float)
+        if self._P_vec.size:
+            T_sat_vec = PropsSI("T", "P", self._P_vec, "Q", 1.0, self.fluid).astype(float)
+            self._T_sat_interp = interp1d(
+                self._P_vec,
+                T_sat_vec,
+                kind="linear",
+                bounds_error=False,
+                fill_value="extrapolate",
+            )
 
     def T_from_PH(self, p_i, h_i):
         p = float(np.clip(p_i, self._P_min, self._P_max))
@@ -144,12 +157,15 @@ class Refrigerant:
             valve position [%] in [0..100]
         """
 
+        if t <= 5.0:
+            return 5.0
+
         # -----------------------------
-        # Enable condition (only external parameter)
+        # Enable condition
         # -----------------------------
         HP = self.HP
         if not HP.use_controller:
-            return 50.0
+            return 95.0
 
         # -----------------------------
         # controller settings
@@ -160,10 +176,7 @@ class Refrigerant:
         u_min = 0.0  # [%]
         u_max = 100.0  # [%]
         u0 = 50.0  # [%] bias / initial opening
-        T_sample = 0.5 # [s] Sample time for controller
-
-        if t <= 60.0:
-            return u0
+        T_sample = 0.1 # [s] Sample time for controller
 
         # -----------------------------
         # Init state on first call
@@ -194,22 +207,12 @@ class Refrigerant:
         # -----------------------------
         fluid = self.fluid
 
-        # T_suction [K] (prefer your fast interpolator if available)
-        try:
-            T_suction = float(self.T_from_PH_vec(P_suction, np.array([h_suction], dtype=float))[0])
-        except Exception:
-            try:
-                T_suction = float(PropsSI("T", "P", P_suction, "H", h_suction, fluid))
-            except Exception:
-                self._valve_last_t = t_now
-                return float(self._valve_pos)
+        # T_suction [K]
+        T_suction = float(self.T_from_PH_vec(P_suction, np.array([h_suction], dtype=float))[0])
+
 
         # T_sat [K]
-        try:
-            T_sat = float(PropsSI("T", "P", P_suction, "Q", 1.0, fluid))
-        except Exception:
-            self._valve_last_t = t_now
-            return float(self._valve_pos)
+        T_sat = float(self._T_sat_interp(P_suction))
 
         SH = T_suction - T_sat  # [K] can be negative
 
