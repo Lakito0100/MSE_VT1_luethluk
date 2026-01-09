@@ -157,9 +157,6 @@ class Refrigerant:
             valve position [%] in [0..100]
         """
 
-        if t <= 5.0:
-            return 5.0
-
         # -----------------------------
         # Enable condition
         # -----------------------------
@@ -177,6 +174,9 @@ class Refrigerant:
         u_max = 100.0  # [%]
         u0 = 50.0  # [%] bias / initial opening
         T_sample = 0.1 # [s] Sample time for controller
+
+        if t <= 60:
+            return u0
 
         # -----------------------------
         # Init state on first call

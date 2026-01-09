@@ -340,7 +340,7 @@ class Simulator:
 
                 # Adaptiv time step:
                 # parameters
-                it_target = 10
+                it_target = 20
                 k = 0.5  # aggressiveness
                 fac_min, fac_max = 0.5, 2.0  # limit per outer step
                 dt_min, dt_max = 0.01, 5.0  # absolute bounds
