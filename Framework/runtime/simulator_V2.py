@@ -276,7 +276,7 @@ class Simulator:
             h3_cond_out = self.HP.h_ref_cond[-1]
 
             p4_valve_out = p_ref_evap
-            VPos = self.refrigerant.valve_controller(t)
+            VPos = self.refrigerant.valve_controller(t, p1_suction, h1_suction)
             m_valve, h4_valve_out = self.refrigerant.valve_model(pi=p3_cond_out, hi=h3_cond_out, po=p4_valve_out, VPos=VPos)
 
             cycle_ph = [
@@ -298,7 +298,9 @@ class Simulator:
                           p_ref_evap=p_ref_evap,
                           p_ref_cond=p_ref_cond,
                           humidity=humid_l,
-                          cycle_ph=cycle_ph)
+                          cycle_ph=cycle_ph,
+                          m_dot_ref=m_comp,
+                          valve_pos=VPos)
 
             # Push grid snapshot
             if it % gs.store_grid_every_x_it == 0 or t >= gs.t_end:
@@ -313,7 +315,7 @@ class Simulator:
 
             # Dynamic models
 
-            input_cfg.T_a = dynamic_models.T_a_profile(t, 20.0, 2.0, 200.0, 120.0)
+            #input_cfg.T_a = dynamic_models.T_a_profile(t, 20.0, 2.0, 200.0, 120.0)
             #input_cfg.w_amb = dynamic_models.w_amb_profile(t,input_cfg.T_a,input_cfg.p_a,0.0,0.85,120.0,10.0)
 
             #if t >= 200.0:
@@ -341,7 +343,7 @@ class Simulator:
                 it_target = 10
                 k = 0.5  # aggressiveness
                 fac_min, fac_max = 0.5, 2.0  # limit per outer step
-                dt_min, dt_max = 0.02, 5.0  # absolute bounds
+                dt_min, dt_max = 0.01, 5.0  # absolute bounds
 
                 fac = (it_target / n_inner) ** k
                 fac = max(fac_min, min(fac_max, fac))
