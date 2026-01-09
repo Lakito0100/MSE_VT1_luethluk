@@ -313,7 +313,7 @@ class Simulator:
 
             # Dynamic models
 
-            input_cfg.T_a = dynamic_models.T_a_profile(t, 20.0, 2.0, 200.0, 120.0)
+            #input_cfg.T_a = dynamic_models.T_a_profile(t, 20.0, 2.0, 200.0, 120.0)
             #input_cfg.w_amb = dynamic_models.w_amb_profile(t,input_cfg.T_a,input_cfg.p_a,0.0,0.85,120.0,10.0)
 
             #if t >= 200.0:
@@ -341,7 +341,7 @@ class Simulator:
                 it_target = 10
                 k = 0.5  # aggressiveness
                 fac_min, fac_max = 0.5, 2.0  # limit per outer step
-                dt_min, dt_max = 0.02, 5.0  # absolute bounds
+                dt_min, dt_max = 0.01, 5.0  # absolute bounds
 
                 fac = (it_target / n_inner) ** k
                 fac = max(fac_min, min(fac_max, fac))

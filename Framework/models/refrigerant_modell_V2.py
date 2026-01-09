@@ -326,10 +326,13 @@ class Refrigerant:
             T_tube_C = getattr(cfg, "T_tube", cfg.T_ref)
             Tw0[k] = float(T_tube_C + 273.15)
 
-        for i in range(N_condenser):
-            h0_cond[i] = HP.h_ref_cond[i]
-            T0_wall[i] = HP.T_wall[i] + 273.15
-            T0_water[i] = HP.T_water[i] + 273.15
+        #for i in range(N_condenser):
+            #h0_cond[i] = HP.h_ref_cond[i]
+            #T0_wall[i] = HP.T_wall[i] + 273.15
+            #T0_water[i] = HP.T_water[i] + 273.15
+        h0_cond = HP.h_ref_cond
+        T0_wall = HP.T_wall + 273.15
+        T0_water = HP.T_water + 273.15
 
         # State vector: [P, h_0..h_{N-1}, Tw_0..Tw_{N-1}]
         y0 = np.concatenate([np.array([P0]), h0, Tw0, np.array([P0_cond]), h0_cond, T0_wall, T0_water])
