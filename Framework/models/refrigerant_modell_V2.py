@@ -157,9 +157,6 @@ class Refrigerant:
             valve position [%] in [0..100]
         """
 
-        if t <= 5.0:
-            return 5.0
-
         # -----------------------------
         # Enable condition
         # -----------------------------
@@ -171,12 +168,15 @@ class Refrigerant:
         # controller settings
         # -----------------------------
         SH_set = 5.0  # [K] target superheat
-        Kp = 2.0  # [%/K]
-        Ki = 0.05  # [%/(K*s)]
+        Kp = 1.0  # [%/K]
+        Ki = 0.04  # [%/(K*s)]
         u_min = 0.0  # [%]
         u_max = 100.0  # [%]
         u0 = 50.0  # [%] bias / initial opening
         T_sample = 0.1 # [s] Sample time for controller
+
+        if t <= 60:
+            return u0
 
         # -----------------------------
         # Init state on first call
