@@ -127,14 +127,14 @@ class Simulator:
                 try:
                     RH_air_at_wall = HAPropsSI("R",
                                                "T", cfg.T_tube + 273.15,
-                                               "P", cfg.p_a,
-                                               "W", cfg.w_amb)
+                                               "P", cfg_up.p_a,
+                                               "W", cfg_up.w_amb)
                 except Exception:
                     w_sat_wall = HAPropsSI("W",
                                            "T", cfg.T_tube + 273.15,
-                                           "P", cfg.p_a,
+                                           "P", cfg_up.p_a,
                                            "R", 1.0)
-                    RH_air_at_wall = cfg.w_amb / max(w_sat_wall, 1e-12)
+                    RH_air_at_wall = cfg_up.w_amb / max(w_sat_wall, 1e-12)
 
                 RH_air_at_wall = max(0.0, min(1.0, RH_air_at_wall))
 
@@ -148,7 +148,7 @@ class Simulator:
                     res_T_e = float("nan")
                     res_w_e = float("nan")
                     try:
-                        iter_e, res_T_e, res_w_e = model_e_loc.New_edge_state_seg_at_90(cfg, geom, st, gs)
+                        iter_e, res_T_e, res_w_e = model_e_loc.New_edge_state_seg_at_90(cfg_up, cfg, geom, st, gs)
                         if st.s_e[89] >= s_max:
                             info["warn"].append(
                                 f"\033[31mThe frost in the edge segment {(ix, iy)} is blocking the air flow, ending the simulation.\033[0m"
@@ -168,7 +168,7 @@ class Simulator:
                     res_T_ft = float("nan")
                     res_w_ft = float("nan")
                     try:
-                        iter_ft, res_T_ft, res_w_ft = model_ft_loc.New_finn_and_tube_state_seg(cfg, geom, st, gs)
+                        iter_ft, res_T_ft, res_w_ft = model_ft_loc.New_finn_and_tube_state_seg(cfg_up, cfg, geom, st, gs)
                         if st.s_ft >= s_max:
                             info["warn"].append(
                                 f"\033[31mThe frost in the segment {(ix, iy)} is blocking the air flow, ending the simulation.\033[0m"
@@ -315,8 +315,8 @@ class Simulator:
 
             # Dynamic models
 
-            input_cfg.T_a = dynamic_models.T_a_profile(t, 20.0, 2.0, 200.0, 120.0)
-            #input_cfg.w_amb = dynamic_models.w_amb_profile(t,input_cfg.T_a,input_cfg.p_a,0.0,0.85,120.0,10.0)
+            #input_cfg.T_a = dynamic_models.T_a_profile(t, 20.0, 2.0, 200.0, 120.0)
+            input_cfg.w_amb = dynamic_models.w_amb_profile(t,input_cfg.T_a,input_cfg.p_a,0.0,0.1,200.0,20.0)
 
             #if t >= 200.0:
             #    gs.cal_frost = True
