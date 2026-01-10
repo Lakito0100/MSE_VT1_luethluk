@@ -169,7 +169,7 @@ def plot_any(
             ax.legend(labels)
 
     if save_path:
-        fig.savefig(save_path, dpi=300, bbox_inches="tight")
+        fig.savefig(save_path, dpi=600, bbox_inches="tight")
     if show:
         plt.show()
     return fig, ax
@@ -276,7 +276,7 @@ def plot_spatial_slice(
     ax.grid(True)
 
     if save_path:
-        fig.savefig(save_path, dpi=300, bbox_inches="tight")
+        fig.savefig(save_path, dpi=600, bbox_inches="tight")
     if show:
         plt.show()
     return fig, ax
@@ -799,7 +799,7 @@ def plot_logph_cycles(
     fig.tight_layout()
 
     if save_path:
-        fig.savefig(save_path, dpi=300, bbox_inches="tight")
+        fig.savefig(save_path, dpi=600, bbox_inches="tight")
     if show:
         plt.show()
     return fig, ax

@@ -162,13 +162,13 @@ class Refrigerant:
         # -----------------------------
         HP = self.HP
         if not HP.use_controller:
-            return 95.0
+            return 62.0
 
         # -----------------------------
         # controller settings
         # -----------------------------
-        SH_set = 5.0  # [K] target superheat
-        Kp = 1.0  # [%/K]
+        SH_set = 8.0  # [K] target superheat
+        Kp = 0.25  # [%/K]
         Ki = 0.04  # [%/(K*s)]
         u_min = 0.0  # [%]
         u_max = 100.0  # [%]
