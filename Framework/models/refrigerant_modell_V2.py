@@ -168,8 +168,8 @@ class Refrigerant:
         # controller settings
         # -----------------------------
         SH_set = 5.0  # [K] target superheat
-        Kp = 2.0  # [%/K]
-        Ki = 0.05  # [%/(K*s)]
+        Kp = 1.0  # [%/K]
+        Ki = 0.04  # [%/(K*s)]
         u_min = 0.0  # [%]
         u_max = 100.0  # [%]
         u0 = 50.0  # [%] bias / initial opening
