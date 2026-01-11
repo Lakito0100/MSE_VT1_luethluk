@@ -65,6 +65,7 @@ class Simulator:
         it = 0
         t0_start = time.perf_counter()
         n_inner = 10
+        dt_start = gs.dt
 
         while t <= gs.t_end:
             it += 1
@@ -81,6 +82,8 @@ class Simulator:
 
             max_workers = min(os.cpu_count() or 1, n_y)
             stop_event = threading.Event()  # thread-safe stop flag
+            max_rh_wall_step = 0.0
+            any_frost_condition_step = False
 
             def _fmt_segment_line(info):
                 ix, iy = info["ix"], info["iy"]
@@ -121,7 +124,16 @@ class Simulator:
 
                 model_e_loc, model_ft_loc = _get_thread_models()
 
-                info = {"ix": ix, "iy": iy, "edge": None, "ft": None, "air": None, "warn": [], "err": []}
+                info = {
+                    "ix": ix,
+                    "iy": iy,
+                    "edge": None,
+                    "ft": None,
+                    "air": None,
+                    "warn": [],
+                    "err": [],
+                    "rh_wall": 0.0,
+                    "frost_condition": False}
 
                 # ---------------- Frost condition ----------------
                 try:
@@ -140,6 +152,8 @@ class Simulator:
 
                 if RH_air_at_wall >= 0.999 and gs.cal_frost:
                     cfg.frost_condition = True
+                info["rh_wall"] = RH_air_at_wall
+                info["frost_condition"] = cfg.frost_condition
 
                 # ---------------- Updating the edge state ----------------
                 if ix == 0 and cfg.frost_condition:
@@ -217,6 +231,8 @@ class Simulator:
                         iy, q_val, info = fut.result()
                         Q_seg_x0_list[ix, iy] = q_val
                         infos_by_iy[iy] = info
+                        max_rh_wall_step = max(max_rh_wall_step, info["rh_wall"])
+                        any_frost_condition_step = any_frost_condition_step or info["frost_condition"]
 
                 # Geordnet ausgeben (iy=0..n_y-1), aber kompakt
                 for iy in range(n_y):
@@ -300,7 +316,8 @@ class Simulator:
                           humidity=humid_l,
                           cycle_ph=cycle_ph,
                           m_dot_ref=m_comp,
-                          valve_pos=VPos)
+                          valve_pos=VPos,
+                          dt=gs.dt)
 
             # Push grid snapshot
             if it % gs.store_grid_every_x_it == 0 or t >= gs.t_end:
@@ -316,7 +333,7 @@ class Simulator:
             # Dynamic models
 
             #input_cfg.T_a = dynamic_models.T_a_profile(t, 20.0, 2.0, 200.0, 120.0)
-            input_cfg.w_amb = dynamic_models.w_amb_profile(t,input_cfg.T_a,input_cfg.p_a,0.0,0.1,200.0,20.0)
+            input_cfg.w_amb = dynamic_models.w_amb_profile(t,input_cfg.T_a,input_cfg.p_a,0.0,0.2,200.0,20.0)
 
             #if t >= 200.0:
             #    gs.cal_frost = True
@@ -340,16 +357,20 @@ class Simulator:
 
                 # Adaptiv time step:
                 # parameters
-                it_target = 20
-                k = 0.5  # aggressiveness
-                fac_min, fac_max = 0.5, 2.0  # limit per outer step
-                dt_min, dt_max = 0.01, 5.0  # absolute bounds
+                #if max_rh_wall_step  > 0.8 and not any_frost_condition_step:
+                if 190.0 <= t <= 240.0:
+                    gs.dt = gs.dt = max(dt_start, gs.dt * 0.25)
+                else:
+                    it_target = 20
+                    k = 0.5  # aggressiveness
+                    fac_min, fac_max = 0.5, 2.0  # limit per outer step
+                    dt_min, dt_max = 0.01, 5.0  # absolute bounds
 
-                fac = (it_target / n_inner) ** k
-                fac = max(fac_min, min(fac_max, fac))
+                    fac = (it_target / n_inner) ** k
+                    fac = max(fac_min, min(fac_max, fac))
 
-                gs.dt *= fac
-                gs.dt = max(dt_min, min(dt_max, gs.dt))
+                    gs.dt *= fac
+                    gs.dt = max(dt_min, min(dt_max, gs.dt))
 
                 print(f"Updating dt for the next time step to dt={gs.dt:.2f} s")
 
