@@ -510,6 +510,15 @@ class Frostmodell_Finn_and_Tube:
         h_eff = h_0 * (A_G/A + mue_fin*A_R/A)
         return h_eff
 
+    def h_moist_da_Jpkg(self,T_C: float, w: float) -> float:
+        """Moist air enthalpy per kg dry air [J/kg_da], T in °C."""
+        return 1000.0 * (1.006 * T_C + w * (2501.0 + 1.86 * T_C))
+
+    def T_from_h_w_C(self,h_Jpkg: float, w: float) -> float:
+        """Invert h = (1.006 + 1.86 w) T + 2501 w  (kJ/kg_da) for T in °C."""
+        denom = 1000.0 * (1.006 + 1.86 * w)
+        return (h_Jpkg - 1000.0 * 2501.0 * w) / denom
+
     def New_finn_and_tube_state_seg(self, cfg_up, cfg, geom, st, gs, tol=1e-6, niter=1000):
         it = 0
         res_T = res_w = np.inf
@@ -546,12 +555,13 @@ class Frostmodell_Finn_and_Tube:
             # Temperatur- und Sättigungszustand an der Oberfläche
             Tfs = float(T_f_old[-1])
             wfs_sat = self.w_sat_coolprop(Tfs, cfg_up.p_a)
+            wfs = float(w_f_old[-1])
 
             # Massenströme (Luftseite + diffusive im Frost)
             rho_a_sf = self.rho_a_dry_local(Tfs, cfg_up.p_a)
             hm_eff = h_eff / (rho_a_sf * cfg_up.c_p_a)  # Massenübergangskoeffizient
 
-            dw = cfg_up.w_amb - wfs_sat
+            dw = cfg_up.w_amb - wfs
             if dw >= 0.0:
                 m_f = hm_eff * rho_a_sf * dw
                 Deff_s = self.D_eff(cfg_up, st, N - 1)
@@ -567,10 +577,48 @@ class Frostmodell_Finn_and_Tube:
                 m_delta = 0.0
                 check_m_delta = True
 
-            # Wärmeströme
-            q_sens_fs = h_eff * (cfg_up.T_a - Tfs)
-            q_lat_fs = cfg_up.h_sub * m_delta
-            q_tot_fs = q_sens_fs + q_lat_fs
+            w_out = 1.0
+            w_sat_air_check = 0.0
+            air_it = 0
+
+            while w_sat_air_check* (1.0 + 1e-4) < w_out and air_it < 100:
+
+                # Wärmeströme
+                q_sens_fs = h_eff * (cfg_up.T_a - Tfs)
+                q_lat_fs = cfg_up.h_sub * m_delta
+                q_tot_fs = q_sens_fs + q_lat_fs
+
+                # Check ob auf Sättigungslinie -------------------------------------------------------------------------
+                T_in = cfg_up.T_a
+                w_in = cfg_up.w_amb
+                p_in = cfg_up.p_a
+
+                # Prefer dry-air mass flow because w is defined per kg dry air
+                m_dot_a = cfg_up.m_dot / (geom.n_seg_r * geom.stacks)
+                m_dot_ha = m_dot_a
+                m_dot_da = m_dot_ha / (1.0 + w_in)
+
+                # 1) moisture update
+                w_out = w_in - m_delta*geom.A_one_segment() / m_dot_da
+                w_out = max(w_out, 0.0)
+
+                # 2) enthalpy update (TOTAL heat Q_seg includes latent)
+                h_in = self.h_moist_da_Jpkg(T_in, w_in)
+                h_out = h_in - q_tot_fs*geom.A_one_segment() / m_dot_da
+
+                # 3) compute outlet temperature from (h_out, w_out)
+                T_out = self.T_from_h_w_C(h_out, w_out)
+
+                w_sat_air_check = self.w_sat_coolprop(T_out, p_in)
+
+                if w_sat_air_check < w_out:
+                    m_dot_delta = (w_out - w_sat_air_check)*m_dot_da/geom.A_one_segment()
+                    m_delta += 0.5 * m_dot_delta
+                    m_delta = max(m_delta, 0.0)
+
+                air_it += 1
+
+            # ----------------------------------------------------------------------------------------------------------
 
             # Temperatur an der Frosoberfläche
             h_0 = self.alpha_tube(cfg_up,geom)
@@ -763,17 +811,19 @@ class Frostmodell_Finn_and_Tube:
 
         # Dickenwachstum an der Oberfläche
         Tfs = st.T_ft[-1]
-        wfs_sat = self.w_sat_coolprop(Tfs, cfg_up.p_a)
+        #wfs_sat = self.w_sat_coolprop(Tfs, cfg_up.p_a)
         rho_a_s = self.rho_a_dry_local(Tfs, cfg_up.p_a)
         Deff_s = self.D_eff(cfg_up, st, N - 1)
         grad_w_s = (st.w_ft[-1] - st.w_ft[-2]) / dx
         m_rho_s = Deff_s * rho_a_s * grad_w_s
-        m_f_s = hm_eff * st.rho_a_ft[-1] * (cfg_up.w_amb - wfs_sat)
+        m_f_s = hm_eff * st.rho_a_ft[-1] * (cfg_up.w_amb - st.w_ft[-1])
         m_delta_s = m_f_s - m_rho_s
 
         rho_fs = st.rho_ft[-1]
         st.s_ft += (m_delta_s / rho_fs) * gs.dt
         st.s_ft = max(st.s_ft, 1e-6)
+
+        m_seg_tot = m_delta*geom.A_one_segment()
 
         return it, res_T, res_w
 

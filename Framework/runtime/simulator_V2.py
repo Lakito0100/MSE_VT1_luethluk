@@ -324,6 +324,7 @@ class Simulator:
                           T_out_ref=T_ref_out,
                           p_ref_evap=p_ref_evap,
                           superheating=SH,
+                          T_sat=T_sat,
                           p_ref_cond=p_ref_cond,
                           humidity=humid_l,
                           cycle_ph=cycle_ph,
@@ -370,7 +371,7 @@ class Simulator:
                 # Adaptiv time step:
                 # parameters
                 #if max_rh_wall_step  > 0.8 and not any_frost_condition_step:
-                if 190.0 <= t <= 240.0:
+                if 190.0 <= t <= 205.0:
                     gs.dt = max(dt_start, gs.dt * 0.5)
                 else:
                     it_target = 20
