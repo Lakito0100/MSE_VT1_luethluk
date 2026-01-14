@@ -555,13 +555,12 @@ class Frostmodell_Finn_and_Tube:
             # Temperatur- und Sättigungszustand an der Oberfläche
             Tfs = float(T_f_old[-1])
             wfs_sat = self.w_sat_coolprop(Tfs, cfg_up.p_a)
-            wfs = float(w_f_old[-1])
 
             # Massenströme (Luftseite + diffusive im Frost)
             rho_a_sf = self.rho_a_dry_local(Tfs, cfg_up.p_a)
             hm_eff = h_eff / (rho_a_sf * cfg_up.c_p_a)  # Massenübergangskoeffizient
 
-            dw = cfg_up.w_amb - wfs
+            dw = cfg_up.w_amb - wfs_sat
             if dw >= 0.0:
                 m_f = hm_eff * rho_a_sf * dw
                 Deff_s = self.D_eff(cfg_up, st, N - 1)
@@ -577,9 +576,9 @@ class Frostmodell_Finn_and_Tube:
                 m_delta = m_f - m_rho
                 check_m_delta = True
 
-            w_out = 1.0
-            w_sat_air_check = 0.0
-            air_it = 0
+            # w_out = 1.0
+            # w_sat_air_check = 0.0
+            # air_it = 0
 
             #while w_sat_air_check*(1.0 + 1e-4) < w_out and air_it < 100:
 
@@ -809,7 +808,7 @@ class Frostmodell_Finn_and_Tube:
         st.w_ft = w_f_new.copy()
 
         if check_m_delta:
-            print(f"\033[31mNegative moisture mass flow detected, setting m_delta = 0!\033[0m")
+            print(f"\033[31mNegative moisture mass flow detected, setting m_f = 0!\033[0m")
 
         for i in range(N):
             st.rho_ft[i] = 207*np.exp(0.266*st.T_ft[-1] - 0.0615*cfg.T_tube)
@@ -880,7 +879,7 @@ class Frostmodell_Finn_and_Tube:
 
         # Wärmeströme
         q_sens_fs = h_eff * (cfg.T_a - Tfs)  # [W/m²]
-        q_tot_fs = q_sens_fs + cfg.h_sub * m_delta  # [W/m²]
+        q_tot_fs = q_sens_fs + cfg.h_sub * m_fs  # [W/m²]
         #q_tot_fs_2 = self.k_f(st, -1) * (Tfs - st.T_ft[-2]) / dx
 
         #q_tot_x0 = q_sens_fs + cfg.h_sub * m_x0
@@ -898,10 +897,10 @@ class Frostmodell_Finn_and_Tube:
         Rückgabe:
             m_s_seg [kg/s]
         """
-        q_tot_fs, q_tot_x0, m_delta, q_steady = self._segment_surface_fluxes(cfg, geom, st, gs)
+        q_tot_fs, q_tot_x0, m_fs, q_steady = self._segment_surface_fluxes(cfg, geom, st, gs)
 
         A_seg = geom.A_one_segment()
-        m_s_seg = m_delta * A_seg  # [kg/s]
+        m_s_seg = m_fs * A_seg  # [kg/s]
 
         return m_s_seg
 
