@@ -202,7 +202,7 @@ class Air:
                           st_seg,
                           geom,
                           m_dot_a: float,
-                          Q_seg: float,
+                          Q_sens_seg: float,
                           m_s_seg: float,
                           dt: float,
                           dp_seg: float = 0.0):
@@ -238,13 +238,17 @@ class Air:
         m_dot_ha = m_dot_a
         m_dot_da = m_dot_ha / (1.0 + w_in)
 
+        m_s_max = 0.999999 * w_in * m_dot_da  # [kg/s] max removable vapor
+        m_s_used = min(m_s_seg, m_s_max)
+
         # 1) moisture update
-        w_out = w_in - m_s_seg / m_dot_da
+        w_out = w_in - m_s_used / m_dot_da
         w_out = max(w_out, 0.0)
 
         # 2) enthalpy update (TOTAL heat Q_seg includes latent)
+        Q_tot = float(Q_sens_seg) + float(cfg_in.h_sub) * m_s_used
         h_in = self.h_moist_da_Jpkg(T_in, w_in)
-        h_out = h_in - Q_seg / m_dot_da
+        h_out = h_in - Q_tot / m_dot_da
 
         # 3) compute outlet temperature from (h_out, w_out)
         T_out = self.T_from_h_w_C(h_out, w_out)

@@ -201,16 +201,16 @@ class Simulator:
                 if gs.cal_air:
                     if cfg.frost_condition:
                         m_s_seg = model_ft_loc.segment_mass_flux_air_frost(cfg_up, geom, st, gs)
-                        Q_seg_fs, Q_seg_x0, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_up, geom, st, gs)
+                        Q_sens_fs, Q_seg_x0, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_up, geom, st, gs)
                         T_out, w_out, p_out = self.air.propagate_inplace(
-                            cfg_up, cfg, st.s_ft, st, geom, m_dot_a, Q_seg_fs, m_s_seg, gs.dt
+                            cfg_up, cfg, st.s_ft, st, geom, m_dot_a, Q_sens_fs, m_s_seg, gs.dt
                         )
 
                         q_for_list = Q_seg_x0
                     else:
                         st.T_e[:] = cfg.T_tube
                         st.T_ft[:] = cfg.T_tube
-                        Q_seg_fs, Q_seg_x0, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_up, geom, st, gs)
+                        Q_sens_fs, Q_seg_x0, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_up, geom, st, gs)
                         T_out, w_out, p_out = self.air.propagate_inplace(
                             cfg_up, cfg, st.s_ft, st, geom, m_dot_a, Q_steady, 0.0, gs.dt
                         )

@@ -838,7 +838,7 @@ class Frostmodell_Finn_and_Tube:
 
         Rückgabe:
             q_tot_fs  [W/m²]       - gesamter Wärmestrom von Luft -> Frost
-            m_delta   [kg/(m² s)]  - Nettomassenstrom Wasserdampf -> Frost
+            m_fs   [kg/(m² s)]  - Massenstrom Wasserdampf -> Frost
         """
         N = gs.nx
         if N < 2:
@@ -888,7 +888,7 @@ class Frostmodell_Finn_and_Tube:
         # Heat flow for steady state
         q_steady = q_sens_fs
 
-        return q_tot_fs, q_tot_x0_2, m_fs, q_steady
+        return q_sens_fs, q_tot_x0_2, m_fs, q_steady
 
     def segment_mass_flux_air_frost(self, cfg, geom, st, gs):
         """
@@ -897,7 +897,7 @@ class Frostmodell_Finn_and_Tube:
         Rückgabe:
             m_s_seg [kg/s]
         """
-        q_tot_fs, q_tot_x0, m_fs, q_steady = self._segment_surface_fluxes(cfg, geom, st, gs)
+        q_sens_fs, q_tot_x0, m_fs, q_steady = self._segment_surface_fluxes(cfg, geom, st, gs)
 
         A_seg = geom.A_one_segment()
         m_s_seg = m_fs * A_seg  # [kg/s]
@@ -912,13 +912,13 @@ class Frostmodell_Finn_and_Tube:
             Q_seg_fs [W]
             Q_seg_x0 [W]
         """
-        q_tot_fs, q_tot_x0, m_delta, q_steady = self._segment_surface_fluxes(cfg, geom, st, gs)
+        q_sens_fs, q_tot_x0, m_fs, q_steady = self._segment_surface_fluxes(cfg, geom, st, gs)
 
         A_seg = geom.A_one_segment()
-        Q_seg_fs = q_tot_fs * A_seg  # [W]
+        Q_sens_fs = q_sens_fs * A_seg  # [W]
         Q_seg_x0 = q_tot_x0 * A_seg  # [W]
 
         # For steady state
         Q_steady = q_steady * A_seg
 
-        return Q_seg_fs, Q_seg_x0, Q_steady
+        return Q_sens_fs, Q_seg_x0, Q_steady
