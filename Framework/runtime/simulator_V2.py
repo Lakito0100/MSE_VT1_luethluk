@@ -150,7 +150,7 @@ class Simulator:
 
                 RH_air_at_wall = max(0.0, min(1.0, RH_air_at_wall))
 
-                if RH_air_at_wall >= 0.999 and gs.cal_frost:
+                if RH_air_at_wall >= 0.999 and cfg.T_tube <= 0.0 and gs.cal_frost:
                     cfg.frost_condition = True
                 info["rh_wall"] = RH_air_at_wall
                 info["frost_condition"] = cfg.frost_condition
@@ -274,6 +274,9 @@ class Simulator:
             mean_s_ft = np.mean([st_grid[ix][iy].s_ft
                                  for ix in range(n_x)
                                  for iy in range(n_y)])
+            max_s_ft = np.max([st_grid[ix][iy].s_ft
+                                 for ix in range(n_x)
+                                 for iy in range(n_y)])
             humid_l = np.array([seg[0].w_amb for seg in cfg_grid])
 
             p_ref_evap = cfg_grid[x0][y0].p_ref
@@ -302,16 +305,25 @@ class Simulator:
                 [float(p4_valve_out), float(h4_valve_out)],
             ]
 
+            T = float(PropsSI("T", "P", p1_suction, "H", h1_suction, cfg.ref_str))
+            T_sat = float(PropsSI("T", "P", p1_suction, "Q", 0, cfg.ref_str))
+            SH = T-T_sat
+
             # einfache Zeitsignale im Speicher halten
             self.rec.push(t=t,
                           EER=EER,
                           COP=COP,
+                          Q_cond=Q_cond,
+                          Q_evap=Q_evap,
+                          W_comp=W_comp,
                           mean_s_ft=mean_s_ft,
+                          max_s_ft=max_s_ft,
                           m_dot_air = m_dot_air,
                           v_in_air = v_in_air,
                           T_out_air_mean=T_outlet_air_mean,
                           T_out_ref=T_ref_out,
                           p_ref_evap=p_ref_evap,
+                          superheating=SH,
                           p_ref_cond=p_ref_cond,
                           humidity=humid_l,
                           cycle_ph=cycle_ph,
@@ -333,7 +345,7 @@ class Simulator:
             # Dynamic models
 
             #input_cfg.T_a = dynamic_models.T_a_profile(t, 20.0, 2.0, 200.0, 120.0)
-            input_cfg.w_amb = dynamic_models.w_amb_profile(t,input_cfg.T_a,input_cfg.p_a,0.0,0.2,200.0,20.0)
+            input_cfg.w_amb = dynamic_models.w_amb_profile(t,input_cfg.T_a,input_cfg.p_a,0.0,0.8,200.0,20.0)
 
             #if t >= 200.0:
             #    gs.cal_frost = True
@@ -359,7 +371,7 @@ class Simulator:
                 # parameters
                 #if max_rh_wall_step  > 0.8 and not any_frost_condition_step:
                 if 190.0 <= t <= 240.0:
-                    gs.dt = gs.dt = max(dt_start, gs.dt * 0.25)
+                    gs.dt = max(dt_start, gs.dt * 0.5)
                 else:
                     it_target = 20
                     k = 0.5  # aggressiveness
