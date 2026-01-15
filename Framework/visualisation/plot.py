@@ -803,3 +803,195 @@ def plot_logph_cycles(
     if show:
         plt.show()
     return fig, ax
+
+def _psat_buck_Pa(T_C):
+    """
+    Sättigungsdampfdruck nach Buck (1981), Stückweise über Wasser/Eis.
+    T_C in °C, Rückgabe in Pa.
+    """
+    T = np.asarray(T_C, dtype=float)
+    # Buck: e_s in kPa
+    e_kPa = np.where(
+        T >= 0.0,
+        0.61121 * np.exp((18.678 - T / 234.5) * (T / (257.14 + T))),   # über Wasser
+        0.61115 * np.exp((23.036 - T / 333.7) * (T / (279.82 + T)))    # über Eis
+    )
+    return 1000.0 * e_kPa  # Pa
+
+
+def _humidity_ratio_from_pv(pv, P):
+    """
+    Feuchteverhältnis w [kg/kg_trockene_Luft] aus Partialdruck pv und Gesamtdruck P [Pa].
+    """
+    pv = np.asarray(pv, dtype=float)
+    P = float(P)
+    pv = np.clip(pv, 0.0, 0.999 * P)
+    return 0.62198 * pv / (P - pv)
+
+
+def _moist_air_enthalpy_kJkg_da(T_C, w):
+    """
+    Lineare Standardnäherung (wie in deinem Text): h [kJ/kg_da]
+    T_C in °C, w in kg/kg_da.
+    """
+    T_C = np.asarray(T_C, dtype=float)
+    w   = np.asarray(w, dtype=float)
+    c_p_da = 1.006  # kJ/(kg K)
+    c_p_v  = 1.86   # kJ/(kg K)
+    h_g0   = 2501.0 # kJ/kg
+    return c_p_da * T_C + w * (h_g0 + c_p_v * T_C)
+
+
+def plot_mollier_hx_time(
+    t,
+    humidity,
+    air_temp_l,
+    *,
+    P=101325.0,
+    seg_idx=-1,                    # int | list[int] | "mean"
+    plot_background=True,
+    T_bg_min=-25.0,
+    T_bg_max=35.0,
+    iso_Ts_C=None,                 # z.B. [-20,-10,0,10,20,30]
+    rh_lines=(0.2, 0.4, 0.6, 0.8, 1.0),
+    title=None,
+    save_path=None,
+    show=True,
+    ax=None,
+    marker=None,
+    line_kwargs=None,
+    s_scatter=14
+):
+    """
+    Mollier-(h-x)-Plot (h über x=w) für feuchte Luft, Zeit farbcodiert.
+
+    Erwartete Einheiten (wie bei dir im Recorder):
+      - t: Sekunden
+      - humidity: w [kg/kg_trockene_Luft] als (nt,) oder (nt,nseg)
+      - air_temp_l: T [°C] als (nt,) oder (nt,nseg)
+
+    seg_idx:
+      - int: Segmentindex (z.B. -1 = Outlet, 0 = Inlet)
+      - list[int]: mehrere Segmente gleichzeitig
+      - "mean": Mittel über Segmente (Achse 1)
+    """
+
+    t = np.asarray(t, dtype=float).ravel()
+    w_raw = np.asarray(humidity, dtype=float)
+    T_raw = np.asarray(air_temp_l, dtype=float)
+
+    if t.ndim != 1:
+        raise ValueError("t muss 1D sein.")
+    if w_raw.shape[0] != t.shape[0] or T_raw.shape[0] != t.shape[0]:
+        raise ValueError(f"Zeitachse passt nicht: t={t.shape}, w={w_raw.shape}, T={T_raw.shape}")
+
+    # Temperatur-Einheit robust (falls doch in K gespeichert)
+    if np.nanmean(T_raw) > 150.0:
+        T_raw = T_raw - 273.15
+
+    # Segmentauswahl normalisieren
+    if isinstance(seg_idx, str) and seg_idx.lower() == "mean":
+        if w_raw.ndim != 2 or T_raw.ndim != 2:
+            raise ValueError("seg_idx='mean' setzt (nt,nseg) voraus.")
+        w_list = [np.nanmean(w_raw, axis=1)]
+        T_list = [np.nanmean(T_raw, axis=1)]
+        labels = ["mean"]
+    else:
+        idxs = np.atleast_1d(seg_idx).astype(int) if not isinstance(seg_idx, (list, tuple, np.ndarray)) else np.asarray(seg_idx, dtype=int)
+        if w_raw.ndim == 1:
+            if idxs.size != 1:
+                raise ValueError("Bei 1D humidity/air_temp_l ist nur ein seg_idx sinnvoll.")
+            w_list = [w_raw]
+            T_list = [T_raw]
+            labels = [f"seg={int(idxs[0])}"]
+        elif w_raw.ndim == 2:
+            w_list, T_list, labels = [], [], []
+            nseg = w_raw.shape[1]
+            for i in idxs:
+                ii = i if i >= 0 else nseg + i
+                if ii < 0 or ii >= nseg:
+                    raise IndexError(f"seg_idx {i} außerhalb [0,{nseg-1}]")
+                w_list.append(w_raw[:, ii])
+                T_list.append(T_raw[:, ii])
+                labels.append(f"seg={i}")
+        else:
+            raise ValueError(f"humidity/air_temp_l müssen 1D oder 2D sein, got {w_raw.ndim}D.")
+
+    owns_fig = ax is None
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(10, 7))
+    else:
+        fig = ax.figure
+
+    # --- Hintergrund (Sättigungslinie, RH-Linien, Isothermen) ---
+    if plot_background:
+        T_bg = np.linspace(float(T_bg_min), float(T_bg_max), 260)
+        psat = _psat_buck_Pa(T_bg)
+        w_sat = _humidity_ratio_from_pv(psat, P)
+        h_sat = _moist_air_enthalpy_kJkg_da(T_bg, w_sat)
+
+        # Sättigungslinie (100% RH)
+        ax.plot(w_sat * 1000.0, h_sat, linewidth=1.5, label="RH=100%")
+
+        # RH-Linien
+        for rh in rh_lines:
+            rh = float(rh)
+            if not (0.0 < rh <= 1.0):
+                continue
+            pv = rh * psat
+            w_rh = _humidity_ratio_from_pv(pv, P)
+            h_rh = _moist_air_enthalpy_kJkg_da(T_bg, w_rh)
+            ax.plot(w_rh * 1000.0, h_rh, linewidth=0.9, alpha=0.5)
+
+        # Isothermen (als h(w) bei festem T)
+        if iso_Ts_C is None:
+            iso_Ts_C = [-20, -10, 0, 10, 20, 30]
+        for T0 in iso_Ts_C:
+            ps = float(_psat_buck_Pa(T0))
+            w0 = float(_humidity_ratio_from_pv(ps, P))
+            w_line = np.linspace(0.0, max(w0, 1e-6), 120)
+            h_line = _moist_air_enthalpy_kJkg_da(float(T0), w_line)
+            ax.plot(w_line * 1000.0, h_line, linestyle="--", linewidth=0.8, alpha=0.5)
+            ax.annotate(f"{T0:.0f}°C", (w_line[0]*1000.0, h_line[0]), textcoords="offset points", xytext=(-4, 2))
+
+    # --- Pfade über Zeit (farbcodiert) ---
+    plot_kwargs = {}
+    if line_kwargs:
+        plot_kwargs.update(line_kwargs)
+
+    last_sc = None
+    for w_i, T_i, lab in zip(w_list, T_list, labels):
+        w_i = np.asarray(w_i, dtype=float)
+        T_i = np.asarray(T_i, dtype=float)
+        h_i = _moist_air_enthalpy_kJkg_da(T_i, w_i)
+
+        x = w_i * 1000.0  # g/kg_da
+        y = h_i           # kJ/kg_da
+
+        # Linie (Zustandspfad)
+        ax.plot(x, y, label=lab, **plot_kwargs)
+
+        # Zeit-codierte Punkte
+        last_sc = ax.scatter(x, y, c=t, s=s_scatter, marker=marker if marker else "o")
+        # Start/End markieren
+        if len(t) >= 2:
+            ax.annotate("start", (x[0], y[0]), textcoords="offset points", xytext=(6, 6))
+            ax.annotate("end",   (x[-1], y[-1]), textcoords="offset points", xytext=(6, 6))
+
+    if last_sc is not None:
+        cbar = fig.colorbar(last_sc, ax=ax)
+        cbar.set_label("t [s]")
+
+    ax.set_xlabel("x = w [g/kg$_{da}$]")
+    ax.set_ylabel("h [kJ/kg$_{da}$]")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    ax.set_title(title if title else "Mollier (h-x): Luftzustand über Zeit")
+
+    fig.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=600, bbox_inches="tight")
+    if show and owns_fig:
+        plt.show()
+
+    return fig, ax

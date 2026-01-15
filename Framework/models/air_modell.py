@@ -141,6 +141,8 @@ class Air:
             return dp0 * (1.0 - (V / V0) ** 2)
 
         sigma_blockage = float(np.clip(self._sigma_min, 1e-6, 1.0))
+        #SIGMA_FLOOR = 0.10
+        #sigma_blockage = max(float(sigma_blockage), SIGMA_FLOOR)
 
         # Residuum
         def F(V):
@@ -167,6 +169,8 @@ class Air:
 
         rho = float(getattr(cfg, "rho_amb", self._last_rho if self._last_rho is not None else 1.2))
         mdot_total = rho * V_star
+        #MDOT_FLOOR = 0.05  # kg/s (an deine Anlage anpassen)
+        #mdot_total = max(float(mdot_total), MDOT_FLOOR)
         return float(max(mdot_total, 0.0))
 
     def p_ws_buck_Pa(self,T_C: float) -> float:
@@ -243,12 +247,22 @@ class Air:
 
         # 1) moisture update
         w_out = w_in - m_s_used / m_dot_da
-        w_out = max(w_out, 0.0)
+        if cfg_out.frost_condition:
+            w_out = max(w_out, st_seg.w_ft[-1])
+        else:
+            w_out = max(w_out, 0.0)
 
         # 2) enthalpy update (TOTAL heat Q_seg includes latent)
+        h_min = self.h_moist_da_Jpkg(st_seg.T_ft[-1], w_out)
+
+
         Q_tot = float(Q_sens_seg) + float(cfg_in.h_sub) * m_s_used
         h_in = self.h_moist_da_Jpkg(T_in, w_in)
-        h_out = h_in - Q_tot / m_dot_da
+        Q_max = (h_in - h_min) * m_dot_da
+
+        Q_tot_eff = min(Q_tot, Q_max)
+
+        h_out = h_in - Q_tot_eff / m_dot_da
 
         # 3) compute outlet temperature from (h_out, w_out)
         T_out = self.T_from_h_w_C(h_out, w_out)

@@ -59,7 +59,7 @@ class Simulator:
                 _tls.model_ft = model.Frostmodell_Finn_and_Tube()
             return _tls.model_e, _tls.model_ft
 
-        s_max = geom.fin_gap()/2.0
+        s_max = (geom.fin_gap()/2.0) * 0.95
 
         t = 0.0
         it = 0
@@ -291,6 +291,7 @@ class Simulator:
                                  for ix in range(n_x)
                                  for iy in range(n_y)])
             humid_l = np.array([seg[0].w_amb for seg in cfg_grid])
+            air_temp_l = np.array([seg[0].T_a for seg in cfg_grid])
 
             p_ref_evap = cfg_grid[x0][y0].p_ref
             p_ref_cond = self.HP.p_ref_cond
@@ -340,6 +341,7 @@ class Simulator:
                           T_sat=T_sat-273.15,
                           p_ref_cond=p_ref_cond,
                           humidity=humid_l,
+                          air_temp_l=air_temp_l,
                           cycle_ph=cycle_ph,
                           m_dot_ref=m_comp,
                           valve_pos=VPos,

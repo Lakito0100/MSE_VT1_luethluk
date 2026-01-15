@@ -93,5 +93,3 @@ class HeatPump:
 
     def RPM(self,t):
         return min(1500,100*t)
-
-
