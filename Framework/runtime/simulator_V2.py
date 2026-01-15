@@ -44,7 +44,7 @@ class Simulator:
 
     def run(self, cfg, geom, gs, model):
         input_cfg = copy.deepcopy(cfg)
-        input_cfg.fan_master = True
+        #input_cfg.fan_master = True
         cfg_grid, st_grid = build_segment_grids(base_cfg=cfg, geom=geom, gs=gs)
         n_x = len(cfg_grid)
         n_y = len(cfg_grid[0])
@@ -79,6 +79,19 @@ class Simulator:
 
             # gs.t einmal pro Zeitschritt setzen (nicht in Threads)
             gs.t = t
+
+            # --- Fan operating point: einmal pro Zeitschritt ---
+            if self.air._fan_enabled(input_cfg):
+                # konservativ: worst-case Vereisung (max s_ft) -> kleinste freie Querschnittsfläche
+                s_max_step = max(float(st_grid[ix][iy].s_ft) for ix in range(n_x) for iy in range(n_y))
+
+                sigma = self.air._sigma_from_frost(geom, s_max_step)
+                self.air._sigma_min = min(self.air._sigma_min, float(sigma))
+
+                mdot_total = self.air._solve_fan_operating_point(input_cfg, geom)
+                input_cfg.m_dot = float(mdot_total)
+
+                print(f"[FAN] sigma_min={self.air._sigma_min:.3f}, mdot_total={input_cfg.m_dot:.4f} kg/s")
 
             max_workers = min(os.cpu_count() or 1, n_y)
             stop_event = threading.Event()  # thread-safe stop flag
@@ -324,7 +337,7 @@ class Simulator:
                           T_out_ref=T_ref_out,
                           p_ref_evap=p_ref_evap,
                           superheating=SH,
-                          T_sat=T_sat,
+                          T_sat=T_sat-273.15,
                           p_ref_cond=p_ref_cond,
                           humidity=humid_l,
                           cycle_ph=cycle_ph,

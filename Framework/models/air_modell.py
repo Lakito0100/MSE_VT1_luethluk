@@ -211,26 +211,26 @@ class Air:
         w_in = cfg_in.w_amb
         p_in = cfg_in.p_a
 
-        if self._fan_enabled(cfg_in) and getattr(cfg_in, "fan_master", False):
-            npar = self._n_parallel_air_paths(geom)
-
-            # 1) Frost -> sigma (konservativ)
-            sigma = self._sigma_from_frost(geom, s_frost_bevor)
-            self._sigma_min = min(self._sigma_min, sigma)
-
-            # 2) dp bookkeeping (aus deiner dp-Korrelation / aus dem Simulator übergeben)
-            self._last_dp_seg = float(dp_seg)
-
-            # 3) Operating point: löse mdot_total aus Ventilator- und Systemkurve
-            mdot_total = self._solve_fan_operating_point(cfg_in, geom)
-
-            # Gesamtstrom zurückschreiben
-            cfg_in.m_dot = float(mdot_total)
-
-            # Strom pro Pfad für dieses Segment
-            m_dot_a = float(mdot_total) / npar
-
-            self._last_mdot_total = float(mdot_total)
+        #if self._fan_enabled(cfg_in) and getattr(cfg_in, "fan_master", False):
+        #    npar = self._n_parallel_air_paths(geom)
+        #
+        #    # 1) Frost -> sigma (konservativ)
+        #    sigma = self._sigma_from_frost(geom, s_frost_bevor)
+        #    self._sigma_min = min(self._sigma_min, sigma)
+        #
+        #    # 2) dp bookkeeping (aus deiner dp-Korrelation / aus dem Simulator übergeben)
+        #    self._last_dp_seg = float(dp_seg)
+        #
+        #    # 3) Operating point: löse mdot_total aus Ventilator- und Systemkurve
+        #    mdot_total = self._solve_fan_operating_point(cfg_in, geom)
+        #
+        #    # Gesamtstrom zurückschreiben
+        #    cfg_in.m_dot = float(mdot_total)
+        #
+        #    # Strom pro Pfad für dieses Segment
+        #    m_dot_a = float(mdot_total) / npar
+        #
+        #    self._last_mdot_total = float(mdot_total)
 
         p_out = p_in - dp_seg
 
