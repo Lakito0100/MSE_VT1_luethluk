@@ -807,27 +807,29 @@ class Frostmodell_Finn_and_Tube:
         st.T_ft = T_f_new.copy()
         st.w_ft = w_f_new.copy()
 
-        if check_m_delta:
-            print(f"\033[31mNegative moisture mass flow detected, setting m_f = 0!\033[0m")
-
         for i in range(N):
             st.rho_ft[i] = 207*np.exp(0.266*st.T_ft[-1] - 0.0615*cfg.T_tube)
 
         # Dickenwachstum an der Oberfläche
         Tfs = st.T_ft[-1]
-        #wfs_sat = self.w_sat_coolprop(Tfs, cfg_up.p_a)
+        # wfs_sat = self.w_sat_coolprop(Tfs, cfg_up.p_a)
         rho_a_s = self.rho_a_dry_local(Tfs, cfg_up.p_a)
         Deff_s = self.D_eff(cfg_up, st, N - 1)
         grad_w_s = (st.w_ft[-1] - st.w_ft[-2]) / dx
-        m_rho_s = Deff_s * rho_a_s * grad_w_s
-        m_f_s = hm_eff * st.rho_a_ft[-1] * (cfg_up.w_amb - st.w_ft[-1])
-        m_delta_s = m_f_s - m_rho_s
+
+        if check_m_delta:
+            print(f"\033[31mNegative moisture mass flow detected, setting m_f = 0!\033[0m")
+            m_rho_s = Deff_s * rho_a_s * grad_w_s
+            m_f_s = 0.0
+            m_delta_s = m_f_s - m_rho_s
+        else:
+            m_rho_s = Deff_s * rho_a_s * grad_w_s
+            m_f_s = hm_eff * st.rho_a_ft[-1] * (cfg_up.w_amb - st.w_ft[-1])
+            m_delta_s = m_f_s - m_rho_s
 
         rho_fs = st.rho_ft[-1]
         st.s_ft += (m_delta_s / rho_fs) * gs.dt
         st.s_ft = max(st.s_ft, 1e-6)
-
-        m_seg_tot = m_delta*geom.A_one_segment()
 
         return it, res_T, res_w
 
