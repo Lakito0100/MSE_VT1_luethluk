@@ -11,7 +11,7 @@ from Framework.runtime.simulator_V2 import Simulator
 from Framework.visualisation import plot
 from Framework.runtime.recorder import ResultRecorder
 
-sim_run = True
+sim_run = False
 read_data = True
 
 #air
@@ -251,7 +251,7 @@ plot.plot_logph_cycles(
     at_time=gs.t_end,
     isotherms=True,
     iso_Ts_C=[-50,-40,-30,-20,-10,0,10,20,30,40,50,60,70,80,90,100],
-    #save_path="Plots/logph_at_t.png"
+    save_path="Plots/logph_at_t.png"
 )
 
 plot.plot_logph_cycles(
@@ -263,79 +263,101 @@ plot.plot_logph_cycles(
     every_s=60.0,   # alle x s ein Kreisprozess
     isotherms=True,
     iso_Ts_C=[-50,-40,-30,-20,-10,0,10,20,30,40,50,60,70,80,90,100],
-    title="Kreisprozess über die Zeit"
-    #save_path="Plots/logph_t_vec.png"
+    title="Kreisprozess über die Zeit",
+    save_path="Plots/logph_t_vec.png"
 )
 
 plot.plot_any(kind="time vs any",
               x=data['t'], y=data['EER'],
               xlabel="Zeit [s]", ylabel="EER",
-              title=f"EER", marker=None, ylimitter=[0, 5])
-              #save_path="Plots/EER.png")
+              title=f"EER", marker=None, ylimitter=[0, 4],
+              save_path="Plots/EER.png")
 
 plot.plot_any(kind="time vs any",
               x=data['t'], y=data['COP'],
               xlabel="Zeit [s]", ylabel="COP",
-              title=f"COP", marker=None, ylimitter=[0, 5])
-              #save_path="Plots/COP.png")
+              title=f"COP", marker=None, ylimitter=[0, 4],
+              save_path="Plots/COP.png")
 
 plot.plot_any(kind="time vs any",
               x=data['t'], y=data['mean_s_ft'],
               xlabel="Zeit [s]", ylabel="Frostdicke [m]",
-              title=f"Durchschnittliche Frostdicke", marker=None)
-              #save_path="Plots/mean_frost.png")
+              title=f"Durchschnittliche Frostdicke", marker=None,
+              save_path="Plots/mean_frost.png")
 
 plot.plot_any(kind="time vs any",
               x=data['t'], y=data['m_dot_air'],
               xlabel="Zeit [s]", ylabel="Massenfluss [kg/s]",
-              title=f"Gesamter Massenfluss der Luft", marker=None)
-              #save_path="Plots/m_dot_air.png")
+              title=f"Gesamter Massenfluss der Luft", marker=None,
+              save_path="Plots/m_dot_air.png")
 
 plot.plot_any(kind="time vs any",
               x=data['t'], y=data['v_in_air'],
               xlabel="Zeit [s]", ylabel="Geschwindigkeit [m/s]",
-              title=f"Geschwindigkeit der Luft am inlet", marker=None)
-              #save_path="Plots/v_in_air.png")
+              title=f"Geschwindigkeit der Luft am inlet", marker=None,
+              save_path="Plots/v_in_air.png")
 
 plot.plot_any(kind="time vs any",
               x=data['t'], y=data['T_out_air_mean'],
               xlabel="Zeit [s]", ylabel="Temperatur [°C]",
-              title=f"Gemittelte Austrittstemperatur Luft", marker=None)
-              #save_path="Plots/T_out_air.png")
+              title=f"Gemittelte Austrittstemperatur Luft", marker=None,
+              save_path="Plots/T_out_air.png")
+
+plot.plot_any(kind="time vs any",
+              x=data['t'], y=data['T_sat'],
+              xlabel="Zeit [s]", ylabel="Temperatur [°C]",
+              title=f"Verdampfungstemperatur im Verdampfer", marker=None,
+              save_path="Plots/T_evaporation.png")
 
 plot.plot_any(kind="time vs any",
               x=data['t'], y=data['T_out_ref'],
               xlabel="Zeit [s]", ylabel="Temperatur [°C]",
-              title=f"Austrittstemperatur Kältemittel Verdampfer", marker=None)
-              #save_path="Plots/T_out_ref_evap.png")
+              title=f"Austrittstemperatur Kältemittel Verdampfer", marker=None,
+              save_path="Plots/T_out_ref_evap.png")
 
 plot.plot_any(kind="time vs any",
               x=data['t'], y=data['p_ref_evap'],
               xlabel="Zeit [s]", ylabel="Druck [Pa]",
-              title=f"Druck des Kältemittels Verdampferseite", marker=None)
-              #save_path="Plots/P_ref_evap.png")
+              title=f"Druck des Kältemittels Verdampferseite", marker=None,
+              save_path="Plots/P_ref_evap.png")
+
+plot.plot_any(kind="time vs any",
+              x=data['t'], y=data['superheating'],
+              xlabel="Zeit [s]", ylabel="Temperatur [K]",
+              title=f"Überhitzung", marker=None,
+              save_path="Plots/superheating.png")
 
 plot.plot_any(kind="time vs any",
               x=data['t'], y=data['p_ref_cond'],
               xlabel="Zeit [s]", ylabel="Druck [Pa]",
-              title=f"Druck des Kältemittels Kondenserseite", marker=None)
-              #save_path="Plots/P_ref_cond.png")
+              title=f"Druck des Kältemittels Kondenserseite", marker=None,
+              save_path="Plots/P_ref_cond.png")
 
 plot.plot_any(kind="time vs any",
               x=data['t'], y=data['m_dot_ref'],
               xlabel="Zeit [s]", ylabel="Massenfluss [kg/s]",
-              title=f"Massenfluss des Kältemittels", marker=None)
-              #save_path="Plots/m_dot_ref.png")
+              title=f"Massenfluss des Kältemittels", marker=None,
+              save_path="Plots/m_dot_ref.png")
 
 plot.plot_any(kind="time vs any",
               x=data['t'], y=data['valve_pos'],
               xlabel="Zeit [s]", ylabel="Ventilöffnung [%]",
-              title=f"Öffnung des Expansionsventils", marker=None)
-              #save_path="Plots/valve_pos.png")
+              title=f"Öffnung des Expansionsventils", marker=None,
+              save_path="Plots/valve_pos.png")
 
 plot.plot_any(kind="time vs any",
               x=data['t'], y=data['humidity'],
               xlabel="Zeit [s]", ylabel="Feuchtegehalt [kg/kg]",
               title=f"Feuchtgehalt entlang dem Luftstrom", marker=None,
-              labels=["Seg 1","Seg 2","Seg 3","Seg 4","Seg 5"])
-              #save_path="Plots/humidity.png")
+              labels=["Seg 1","Seg 2","Seg 3","Seg 4","Seg 5"],
+              save_path="Plots/humidity.png")
+
+plot.plot_mollier_hx_time(data["t"], data["humidity"], data["air_temp_l"],P=P, seg_idx=0,iso_Ts_C=[-30,-20,-10,0],T_bg_min=-30,T_bg_max=0,save_path="Plots/mollier_seg_0.png")
+plot.plot_mollier_hx_time(data["t"], data["humidity"], data["air_temp_l"],P=P, seg_idx=1,iso_Ts_C=[-30,-20,-10,0],T_bg_min=-30,T_bg_max=0,save_path="Plots/mollier_seg_1.png")
+
+
+plot.plot_any(kind="time vs any",
+              x=data['t'], y=data['dt'],
+              xlabel="Zeit [s]", ylabel="Zeit [s]",
+              title=f"Zeitschritt der Simulation", marker=None,
+              save_path="Plots/time_step.png")

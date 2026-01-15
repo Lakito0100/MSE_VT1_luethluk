@@ -657,6 +657,10 @@ class Frostmodell_Finn_and_Tube:
             # T: Dirichlet T = T_tube
             main_T[0] = 1.0
             b_T[0] = cfg.T_tube
+            #k_f_0 = self.k_f(st, 0)
+            #a_frost = k_f_0/dx
+            #a_tube = geom.lambda_fin*2/geom.tube_thickness
+            #b_T[0] = (a_frost * T_f_old[1] + a_tube * cfg.T_tube)/(a_frost + a_tube)
 
             # i = N-1
             # w: Dirichlet w_fs = wfs_sat
