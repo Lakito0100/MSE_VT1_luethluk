@@ -510,6 +510,15 @@ class Frostmodell_Finn_and_Tube:
         h_eff = h_0 * (A_G/A + mue_fin*A_R/A)
         return h_eff
 
+    def h_moist_da_Jpkg(self,T_C: float, w: float) -> float:
+        """Moist air enthalpy per kg dry air [J/kg_da], T in °C."""
+        return 1000.0 * (1.006 * T_C + w * (2501.0 + 1.86 * T_C))
+
+    def T_from_h_w_C(self,h_Jpkg: float, w: float) -> float:
+        """Invert h = (1.006 + 1.86 w) T + 2501 w  (kJ/kg_da) for T in °C."""
+        denom = 1000.0 * (1.006 + 1.86 * w)
+        return (h_Jpkg - 1000.0 * 2501.0 * w) / denom
+
     def New_finn_and_tube_state_seg(self, cfg_up, cfg, geom, st, gs, tol=1e-6, niter=1000):
         it = 0
         res_T = res_w = np.inf
@@ -560,17 +569,60 @@ class Frostmodell_Finn_and_Tube:
                 m_delta = m_f - m_rho
                 check_m_delta = False
             else:
-                m_f = hm_eff * rho_a_sf * dw
+                m_f = 0.0
                 Deff_s = self.D_eff(cfg_up, st, N - 1)
                 grad_w = (w_f_old[-1] - w_f_old[-2]) / dx
                 m_rho = Deff_s * rho_a[-1] * grad_w
-                m_delta = 0.0
+                m_delta = m_f - m_rho
                 check_m_delta = True
+
+            # w_out = 1.0
+            # w_sat_air_check = 0.0
+            # air_it = 0
+
+            #while w_sat_air_check*(1.0 + 1e-4) < w_out and air_it < 100:
 
             # Wärmeströme
             q_sens_fs = h_eff * (cfg_up.T_a - Tfs)
             q_lat_fs = cfg_up.h_sub * m_delta
             q_tot_fs = q_sens_fs + q_lat_fs
+
+                # # Check ob auf Sättigungslinie -------------------------------------------------------------------------
+                # T_in = cfg_up.T_a
+                # w_in = cfg_up.w_amb
+                # p_in = cfg_up.p_a
+                #
+                # # Prefer dry-air mass flow because w is defined per kg dry air
+                # m_dot_a = cfg_up.m_dot / (geom.n_seg_r * geom.stacks)
+                # m_dot_ha = m_dot_a
+                # m_dot_da = m_dot_ha / (1.0 + w_in)
+                #
+                # # 1) moisture update
+                # w_out = w_in - m_delta*geom.A_one_segment() / m_dot_da
+                # w_out = max(w_out, 0.0)
+                #
+                # # 2) enthalpy update (TOTAL heat Q_seg includes latent)
+                # h_in = self.h_moist_da_Jpkg(T_in, w_in)
+                # h_out = h_in - q_tot_fs*geom.A_one_segment() / m_dot_da
+                #
+                # # 3) compute outlet temperature from (h_out, w_out)
+                # T_out = self.T_from_h_w_C(h_out, w_out)
+                #
+                # w_sat_air_check = self.w_sat_coolprop(T_out, p_in)
+
+                # if w_sat_air_check < w_out:
+                #     m_dot_delta = (w_out - w_sat_air_check)*m_dot_da/geom.A_one_segment()
+                #     m_delta += 0.5 * m_dot_delta
+                #     m_delta = max(m_delta, 0.0)
+                #
+                #     # Wärmeströme
+                #     q_sens_fs = h_eff * (cfg_up.T_a - Tfs)
+                #     q_lat_fs = cfg_up.h_sub * m_delta
+                #     q_tot_fs = q_sens_fs + q_lat_fs
+                #
+                # air_it += 1
+
+            # ----------------------------------------------------------------------------------------------------------
 
             # Temperatur an der Frosoberfläche
             h_0 = self.alpha_tube(cfg_up,geom)
@@ -755,21 +807,25 @@ class Frostmodell_Finn_and_Tube:
         st.T_ft = T_f_new.copy()
         st.w_ft = w_f_new.copy()
 
-        if check_m_delta:
-            print(f"\033[31mNegative moisture mass flow detected, setting m_delta = 0!\033[0m")
-
         for i in range(N):
             st.rho_ft[i] = 207*np.exp(0.266*st.T_ft[-1] - 0.0615*cfg.T_tube)
 
         # Dickenwachstum an der Oberfläche
         Tfs = st.T_ft[-1]
-        wfs_sat = self.w_sat_coolprop(Tfs, cfg_up.p_a)
+        # wfs_sat = self.w_sat_coolprop(Tfs, cfg_up.p_a)
         rho_a_s = self.rho_a_dry_local(Tfs, cfg_up.p_a)
         Deff_s = self.D_eff(cfg_up, st, N - 1)
         grad_w_s = (st.w_ft[-1] - st.w_ft[-2]) / dx
-        m_rho_s = Deff_s * rho_a_s * grad_w_s
-        m_f_s = hm_eff * st.rho_a_ft[-1] * (cfg_up.w_amb - wfs_sat)
-        m_delta_s = m_f_s - m_rho_s
+
+        if check_m_delta:
+            print(f"\033[31mNegative moisture mass flow detected, setting m_f = 0!\033[0m")
+            m_rho_s = Deff_s * rho_a_s * grad_w_s
+            m_f_s = 0.0
+            m_delta_s = m_f_s - m_rho_s
+        else:
+            m_rho_s = Deff_s * rho_a_s * grad_w_s
+            m_f_s = hm_eff * st.rho_a_ft[-1] * (cfg_up.w_amb - st.w_ft[-1])
+            m_delta_s = m_f_s - m_rho_s
 
         rho_fs = st.rho_ft[-1]
         st.s_ft += (m_delta_s / rho_fs) * gs.dt
@@ -784,7 +840,7 @@ class Frostmodell_Finn_and_Tube:
 
         Rückgabe:
             q_tot_fs  [W/m²]       - gesamter Wärmestrom von Luft -> Frost
-            m_delta   [kg/(m² s)]  - Nettomassenstrom Wasserdampf -> Frost
+            m_fs   [kg/(m² s)]  - Massenstrom Wasserdampf -> Frost
         """
         N = gs.nx
         if N < 2:
@@ -816,14 +872,16 @@ class Frostmodell_Finn_and_Tube:
             m_rho = Deff_s * rho_a_s * grad_w  # [kg/(m² s)]
             m_delta = m_fs - m_rho  # [kg/(m² s)]
         else:
-            m_delta = 0.0
+            m_fs = 0.0  # [kg/(m² s)]
+            m_rho = Deff_s * rho_a_s * grad_w  # [kg/(m² s)]
+            m_delta = m_fs - m_rho  # [kg/(m² s)]
             #print(f"\033[31mNegative moisture mass flow detected, setting m_delta = 0!\033[0m")
 
-        m_x0 = cfg.C * st.rho_ft[0]*(st.w_ft[0]-self.w_sat_coolprop(st.T_ft[0], cfg.p_a))*dx
+        # m_x0 = cfg.C * st.rho_ft[0]*(st.w_ft[0]-self.w_sat_coolprop(st.T_ft[0], cfg.p_a))*dx
 
         # Wärmeströme
         q_sens_fs = h_eff * (cfg.T_a - Tfs)  # [W/m²]
-        q_tot_fs = q_sens_fs + cfg.h_sub * m_delta  # [W/m²]
+        q_tot_fs = q_sens_fs + cfg.h_sub * m_fs  # [W/m²]
         #q_tot_fs_2 = self.k_f(st, -1) * (Tfs - st.T_ft[-2]) / dx
 
         #q_tot_x0 = q_sens_fs + cfg.h_sub * m_x0
@@ -832,7 +890,7 @@ class Frostmodell_Finn_and_Tube:
         # Heat flow for steady state
         q_steady = q_sens_fs
 
-        return q_tot_fs, q_tot_x0_2, m_delta, q_steady
+        return q_sens_fs, q_tot_x0_2, m_fs, q_steady
 
     def segment_mass_flux_air_frost(self, cfg, geom, st, gs):
         """
@@ -841,10 +899,10 @@ class Frostmodell_Finn_and_Tube:
         Rückgabe:
             m_s_seg [kg/s]
         """
-        q_tot_fs, q_tot_x0, m_delta, q_steady = self._segment_surface_fluxes(cfg, geom, st, gs)
+        q_sens_fs, q_tot_x0, m_fs, q_steady = self._segment_surface_fluxes(cfg, geom, st, gs)
 
         A_seg = geom.A_one_segment()
-        m_s_seg = m_delta * A_seg  # [kg/s]
+        m_s_seg = m_fs * A_seg  # [kg/s]
 
         return m_s_seg
 
@@ -856,13 +914,13 @@ class Frostmodell_Finn_and_Tube:
             Q_seg_fs [W]
             Q_seg_x0 [W]
         """
-        q_tot_fs, q_tot_x0, m_delta, q_steady = self._segment_surface_fluxes(cfg, geom, st, gs)
+        q_sens_fs, q_tot_x0, m_fs, q_steady = self._segment_surface_fluxes(cfg, geom, st, gs)
 
         A_seg = geom.A_one_segment()
-        Q_seg_fs = q_tot_fs * A_seg  # [W]
+        Q_sens_fs = q_sens_fs * A_seg  # [W]
         Q_seg_x0 = q_tot_x0 * A_seg  # [W]
 
         # For steady state
         Q_steady = q_steady * A_seg
 
-        return Q_seg_fs, Q_seg_x0, Q_steady
+        return Q_sens_fs, Q_seg_x0, Q_steady
