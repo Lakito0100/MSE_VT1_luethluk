@@ -11,7 +11,7 @@ class FinnTubedHX:
     n_seg_l: float          # Anzahl Reihen in Flussrichtung der Luft
     n_seg_r: float          # Anzahl Reihen in Flussrichtung des Kältemittel inlet
     stacks: int             # Anzahl der Stapel
-    n_fin: float            # Number of fins (only for the plot)
+    n_fin: float            # Number of fins per segment
     l_fin: float            # Length of the fins
     h_fin: float            # Height of the fins (usually h_fin=l_fin)
     fin_thickness: float    # Fin thickness
@@ -30,10 +30,10 @@ class FinnTubedHX:
         return self.fin_pitch_cc + self.fin_thickness
 
     def A_tube_one_segment(self):
-        return self.d_tube_a * math.pi * self.fin_gap()
+        return self.d_tube_a * math.pi * self.fin_gap() * self.n_fin
 
     def A_fin_one_segment(self):
-        return 2.0*(self.l_fin*self.h_fin - ((self.d_tube_a**2)*math.pi)/4.0)
+        return 2.0*(self.l_fin*self.h_fin - ((self.d_tube_a**2)*math.pi)/4.0) * self.n_fin
 
     def A_one_segment(self):
         return self.A_tube_one_segment() + self.A_fin_one_segment()
