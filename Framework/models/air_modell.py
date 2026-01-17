@@ -58,7 +58,7 @@ class Air:
         Ko = float(getattr(cfg, "Ko_out", 0.0))
 
         # Stirnfläche (face area)
-        A_fr = float(geom.l_fin * geom.h_fin * getattr(geom, "stacks", 1))
+        A_fr = float(geom.l_fin * geom.h_fin * getattr(geom, "stacks", 1)) * geom.n_fin
 
         # Minimale freie Fläche (vereinfachtes Abbild deiner Geometrie):
         # clean: A_min_clean_seg ~ l_tube() * (h_fin - d_tube_a)
@@ -68,7 +68,7 @@ class Air:
 
         n_cols = int(getattr(geom, "n_seg_r", 1))
         stacks = int(getattr(geom, "stacks", 1))
-        A_min_clean = A_min_clean_seg * n_cols * stacks
+        A_min_clean = (A_min_clean_seg * n_cols * stacks) * geom.n_fin
 
         # Frost/Blockage
         sigma_blockage = float(np.clip(sigma_blockage, 1e-6, 1.0))
@@ -287,7 +287,7 @@ class Air:
         # rho_out = ...
 
         # Update velocity with a protected free-flow area
-        A = geom.h_fin * max(geom.fin_gap() - 2.0 * s_frost_bevor, 1e-9)
+        A = geom.h_fin * geom.n_fin * max(geom.fin_gap() - 2.0 * s_frost_bevor, 1e-9)
         R_da = 287.058
         T_K = T_out + 273.15
         rho_da = p_out / (R_da * T_K * (1.0 + 1.6078 * w_out))  # kg_dry_air / m³

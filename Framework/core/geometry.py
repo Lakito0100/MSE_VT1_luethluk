@@ -11,7 +11,7 @@ class FinnTubedHX:
     n_seg_l: float          # Anzahl Reihen in Flussrichtung der Luft
     n_seg_r: float          # Anzahl Reihen in Flussrichtung des Kältemittel inlet
     stacks: int             # Anzahl der Stapel
-    n_fin: float            # Number of fins (only for the plot)
+    n_fin: float            # Number of fins per segment
     l_fin: float            # Length of the fins
     h_fin: float            # Height of the fins (usually h_fin=l_fin)
     fin_thickness: float    # Fin thickness
@@ -30,10 +30,10 @@ class FinnTubedHX:
         return self.fin_pitch_cc + self.fin_thickness
 
     def A_tube_one_segment(self):
-        return self.d_tube_a * math.pi * self.fin_gap()
+        return self.d_tube_a * math.pi * self.fin_gap() * self.n_fin
 
     def A_fin_one_segment(self):
-        return 2.0*(self.l_fin*self.h_fin - ((self.d_tube_a**2)*math.pi)/4.0)
+        return 2.0*(self.l_fin*self.h_fin - ((self.d_tube_a**2)*math.pi)/4.0) * self.n_fin
 
     def A_one_segment(self):
         return self.A_tube_one_segment() + self.A_fin_one_segment()
@@ -85,9 +85,8 @@ class FinnTubedHX:
         variant = variant.lower()
         path: List[Tuple[int, int]] = []
 
-        if variant in ("row_serpentine", "rows", "snake_rows"):
-            # Start unten rechts, zeilenweise Schlange nach oben
-            # Reproduziert genau dein 5x5-Beispiel.
+        if variant in ("serpentine"):
+            # Start oben rechts, zeilenweise Schlange nach links
             for row_idx_from_bottom, i_l in enumerate(range(n_l - 1, -1, -1)):
                 if row_idx_from_bottom % 2 == 0:
                     # gerade "Zeile von unten": rechts -> links
@@ -98,7 +97,7 @@ class FinnTubedHX:
                 for i_r in col_range:
                     path.append((i_l, i_r))
 
-        elif variant in ("col_serpentine", "cols", "snake_cols"):
+        elif variant in ("serpentine_variant"):
             # Start unten rechts, spaltenweise Schlange nach links
             for col_idx_from_right, i_r in enumerate(range(n_r - 1, -1, -1)):
                 if col_idx_from_right % 2 == 0:

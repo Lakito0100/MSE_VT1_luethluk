@@ -323,6 +323,12 @@ class Simulator:
             T_sat = float(PropsSI("T", "P", p1_suction, "Q", 0, cfg.ref_str))
             SH = T-T_sat
 
+            model_e_loc, model_ft_loc = _get_thread_models()
+            h_eff_vals = [model_ft_loc.h_eff(cfg_ij, geom) for row in cfg_grid for cfg_ij in row]
+            h_eff_mean = float(np.mean(h_eff_vals))
+
+            T_water_outlet = self.HP.T_water[-1]
+
             # einfache Zeitsignale im Speicher halten
             self.rec.push(t=t,
                           EER=EER,
@@ -330,10 +336,12 @@ class Simulator:
                           Q_cond=Q_cond,
                           Q_evap=Q_evap,
                           W_comp=W_comp,
+                          h_eff_mean=h_eff_mean,
                           mean_s_ft=mean_s_ft,
                           max_s_ft=max_s_ft,
                           m_dot_air = m_dot_air,
                           v_in_air = v_in_air,
+                          T_out_water = T_water_outlet,
                           T_out_air_mean=T_outlet_air_mean,
                           T_out_ref=T_ref_out,
                           p_ref_evap=p_ref_evap,
@@ -361,7 +369,7 @@ class Simulator:
             # Dynamic models
 
             #input_cfg.T_a = dynamic_models.T_a_profile(t, 20.0, 2.0, 200.0, 120.0)
-            input_cfg.w_amb = dynamic_models.w_amb_profile(t,input_cfg.T_a,input_cfg.p_a,0.0,0.5,200.0,20.0)
+            input_cfg.w_amb = dynamic_models.w_amb_profile(t,input_cfg.T_a,input_cfg.p_a,0.0,0.5,4*60.0,20.0)
 
             #if t >= 200.0:
             #    gs.cal_frost = True
@@ -386,13 +394,13 @@ class Simulator:
                 # Adaptiv time step:
                 # parameters
                 #if max_rh_wall_step  > 0.8 and not any_frost_condition_step:
-                if 190.0 <= t <= 205.0:
+                if 4*60.0 - 10 <= t <= 4*60.0 + 10:
                     gs.dt = max(dt_start, gs.dt * 0.5)
                 else:
                     it_target = 20
                     k = 0.5  # aggressiveness
                     fac_min, fac_max = 0.5, 2.0  # limit per outer step
-                    dt_min, dt_max = 0.01, 5.0  # absolute bounds
+                    dt_min, dt_max = 0.01, 2.0  # absolute bounds
 
                     fac = (it_target / n_inner) ** k
                     fac = max(fac_min, min(fac_max, fac))
