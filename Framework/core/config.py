@@ -51,7 +51,7 @@ class GridShape:
     nr: int = 100
     ntheta: int = 90
 
-    cal_steady_state: bool = True
+    #cal_steady_state: bool = True
     cal_air: bool = True
     cal_frost: bool = True
     cal_ref: bool = True

@@ -85,9 +85,8 @@ class FinnTubedHX:
         variant = variant.lower()
         path: List[Tuple[int, int]] = []
 
-        if variant in ("row_serpentine", "rows", "snake_rows"):
-            # Start unten rechts, zeilenweise Schlange nach oben
-            # Reproduziert genau dein 5x5-Beispiel.
+        if variant in ("serpentine"):
+            # Start oben rechts, zeilenweise Schlange nach links
             for row_idx_from_bottom, i_l in enumerate(range(n_l - 1, -1, -1)):
                 if row_idx_from_bottom % 2 == 0:
                     # gerade "Zeile von unten": rechts -> links
@@ -98,7 +97,7 @@ class FinnTubedHX:
                 for i_r in col_range:
                     path.append((i_l, i_r))
 
-        elif variant in ("col_serpentine", "cols", "snake_cols"):
+        elif variant in ("serpentine_variant"):
             # Start unten rechts, spaltenweise Schlange nach links
             for col_idx_from_right, i_r in enumerate(range(n_r - 1, -1, -1)):
                 if col_idx_from_right % 2 == 0:
