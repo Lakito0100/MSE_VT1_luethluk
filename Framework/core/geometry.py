@@ -55,27 +55,7 @@ class FinnTubedHX:
         x = self.x_rippe(alpha_f)
         return math.tanh(x)/x
 
-    def build_connection_path(self, variant: str = "row_serpentine") -> List[Tuple[int, int]]:
-        """
-        Erzeugt einen Connection Path (CP) über das Segment-Grid auf Basis von
-        n_seg_l × n_seg_r.
-
-        Indizes:
-            (i_l, i_r) mit
-            i_l in [0, n_seg_l - 1]   - Richtung Luftströmung
-            i_r in [0, n_seg_r - 1]   - Richtung Kältemittelinlet
-
-        Varianten
-        ---------
-        variant = "row_serpentine":
-            Schlange zeilenweise, Start unten rechts.
-            Für 5×5 ergibt das z.B.:
-            (4,4),(4,3),(4,2),(4,1),(4,0),
-            (3,0),(3,1),(3,2),(3,3),(3,4), ...
-
-        variant = "col_serpentine":
-            Schlange spaltenweise, Start unten rechts.
-        """
+    def build_connection_path(self, variant: str = "serpentine") -> List[Tuple[int, int]]:
         n_l = int(self.n_seg_l)
         n_r = int(self.n_seg_r)
 
@@ -86,7 +66,7 @@ class FinnTubedHX:
         path: List[Tuple[int, int]] = []
 
         if variant in ("serpentine"):
-            # Start oben rechts, zeilenweise Schlange nach links
+            # Start oben rechts, spaltenweise Schlange nach links
             for row_idx_from_bottom, i_l in enumerate(range(n_l - 1, -1, -1)):
                 if row_idx_from_bottom % 2 == 0:
                     # gerade "Zeile von unten": rechts -> links
@@ -98,7 +78,7 @@ class FinnTubedHX:
                     path.append((i_l, i_r))
 
         elif variant in ("serpentine_variant"):
-            # Start unten rechts, spaltenweise Schlange nach links
+            # Start unten rechts, zeilenweise Schlange nach links
             for col_idx_from_right, i_r in enumerate(range(n_r - 1, -1, -1)):
                 if col_idx_from_right % 2 == 0:
                     # gerade "Spalte von rechts": unten -> oben
