@@ -38,6 +38,32 @@ class FinnTubedHX:
     def A_one_segment(self):
         return self.A_tube_one_segment() + self.A_fin_one_segment()
 
+    def A_one_segment_frost(self, s_frost: float) -> float:
+        """
+        Effektive luftseitige Wärme-/Stoffübertragungsfläche pro Segment bei Frost.
+        Berücksichtigt rein geometrisch:
+          - reduzierter Finnenabstand (gap_eff = gap0 - 2*s)
+          - vergrösserter effektiver Rohrdurchmesser (d_eff = d0 + 2*s)
+        """
+        s = max(float(s_frost), 0.0)
+        if s <= 1e-12:
+            return self.A_one_segment()
+
+        gap0 = max(float(self.fin_gap()), 1e-9)
+        gap_eff = max(gap0 - 2.0 * s, 1e-9)  # Frost auf beiden Finnenflächen
+
+        d0 = float(self.d_tube_a)
+        d_eff = max(d0 + 2.0 * s, 1e-9)  # Rohr + Frost
+
+        # Tube-Fläche zwischen zwei Finnen (Länge ~ gap_eff)
+        A_tube = math.pi * d_eff * gap_eff * float(self.n_fin)
+
+        # Finnenfläche (beidseitig), abzüglich Kreisfläche um das Rohr (mit d_eff)
+        A_fin = 2.0 * (float(self.l_fin) * float(self.h_fin) - (math.pi * d_eff ** 2) / 4.0) * float(self.n_fin)
+        A_fin = max(A_fin, 0.0)
+
+        return A_tube + A_fin
+
     def d_rohr_i(self):
         return self.d_tube_a - 2 * self.tube_thickness
 
