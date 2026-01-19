@@ -162,7 +162,7 @@ class Refrigerant:
         # -----------------------------
         HP = self.HP
         if not HP.use_controller:
-            return 75.0
+            return 50.0
 
         # -----------------------------
         # controller settings
