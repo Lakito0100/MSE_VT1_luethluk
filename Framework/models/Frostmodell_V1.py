@@ -501,12 +501,12 @@ class Frostmodell_Finn_and_Tube:
         alpha = Nu * cfg.lam / l
         return alpha
 
-    def h_eff(self, cfg, geom):
+    def h_eff(self, cfg, geom, st):
         h_0 = self.alpha_tube(cfg,geom)
         mue_fin = geom.mue_fin(h_0)
         A_G = geom.A_tube_one_segment()
         A_R = geom.A_fin_one_segment()
-        A = geom.A_one_segment()
+        A = geom.A_one_segment_frost(st.s_ft)
         h_eff = h_0 * (A_G/A + mue_fin*A_R/A)
         return h_eff
 
@@ -537,7 +537,7 @@ class Frostmodell_Finn_and_Tube:
         dx = x[1] - x[0]
 
         # effektiver Luft-Wärmeübergang
-        h_eff = self.h_eff(cfg_up, geom)
+        h_eff = self.h_eff(cfg_up, geom, st)
 
 
         while (it < niter) and ((res_T > tol) or (res_w > tol)):
@@ -803,8 +803,8 @@ class Frostmodell_Finn_and_Tube:
             it += 1
 
         # Wärmestrohm berechnen
-        Q_sens = q_sens_fs*geom.A_one_segment()
-        Q_tot = Q_sens + cfg_up.h_sub*m_delta*geom.A_one_segment()
+        #Q_sens = q_sens_fs*geom.A_one_segment()
+        #Q_tot = Q_sens + cfg_up.h_sub*m_delta*geom.A_one_segment()
 
 
         # konvergierte Felder zurückschreiben
@@ -851,7 +851,7 @@ class Frostmodell_Finn_and_Tube:
             return 0.0, 0.0
 
         # effektiver Luft-Wärmeübergang
-        h_eff = self.h_eff(cfg, geom)
+        h_eff = self.h_eff(cfg, geom, st)
 
 
         # aktuelles Frostgitter in x-Richtung
@@ -905,7 +905,7 @@ class Frostmodell_Finn_and_Tube:
         """
         q_sens_fs, q_tot_x0, m_fs, q_steady = self._segment_surface_fluxes(cfg, geom, st, gs)
 
-        A_seg = geom.A_one_segment()
+        A_seg = geom.A_one_segment_frost(st.s_ft)
         m_s_seg = m_fs * A_seg  # [kg/s]
 
         return m_s_seg
@@ -921,10 +921,11 @@ class Frostmodell_Finn_and_Tube:
         q_sens_fs, q_tot_x0, m_fs, q_steady = self._segment_surface_fluxes(cfg, geom, st, gs)
 
         A_seg = geom.A_one_segment()
-        Q_sens_fs = q_sens_fs * A_seg  # [W]
+        A_seg_frost = geom.A_one_segment_frost(st.s_ft)
+        Q_sens_fs = q_sens_fs * A_seg_frost  # [W]
         Q_seg_x0 = q_tot_x0 * A_seg  # [W]
 
         # For steady state
-        Q_steady = q_steady * A_seg
+        Q_steady = q_steady * A_seg_frost
 
         return Q_sens_fs, Q_seg_x0, Q_steady

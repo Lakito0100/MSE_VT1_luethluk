@@ -324,10 +324,16 @@ class Simulator:
             SH = T-T_sat
 
             model_e_loc, model_ft_loc = _get_thread_models()
-            h_eff_vals = [model_ft_loc.h_eff(cfg_ij, geom) for row in cfg_grid for cfg_ij in row]
+            h_eff_vals = [
+                model_ft_loc.h_eff(cfg_ij, geom, st_ij)
+                for cfg_row, st_row in zip(cfg_grid, st_grid)
+                for cfg_ij, st_ij in zip(cfg_row, st_row)
+            ]
             h_eff_mean = float(np.mean(h_eff_vals))
 
             T_water_outlet = self.HP.T_water[-1]
+
+            A_evap_overall = geom.A_one_segment_frost()*geom.n_seg_r*geom.n_seg_l*geom.stacks
 
             # einfache Zeitsignale im Speicher halten
             self.rec.push(t=t,
@@ -337,6 +343,7 @@ class Simulator:
                           Q_evap=Q_evap,
                           W_comp=W_comp,
                           h_eff_mean=h_eff_mean,
+                          A_evap=A_evap_overall,
                           mean_s_ft=mean_s_ft,
                           max_s_ft=max_s_ft,
                           m_dot_air = m_dot_air,
