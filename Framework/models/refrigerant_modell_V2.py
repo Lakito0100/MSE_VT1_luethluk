@@ -10,6 +10,7 @@ from Framework.models.derivatives_of_rho import drho_dP_dH
 
 @dataclass
 class RefGeomParams:
+    """Geometric parameters for the refrigerant-side segments."""
     A_flow: float
     dx: float
     A_inner: float
@@ -34,6 +35,7 @@ class RefGeomParams:
 
 
 class Refrigerant:
+    """Refrigerant-side model including wall and condenser coupling."""
     def __init__(self,geometry, geom_params: RefGeomParams, cfg, HP, path_variant="row_serpentine"):
         self.geometry = geometry
         self.geom = geom_params
@@ -71,10 +73,10 @@ class Refrigerant:
         self._T_interp = out.get("T_interp", None)
         self._T_sat_interp = None
 
-        # Grenzen zum Clipping (damit Interpolator nicht NaN liefert)
-        self._P_min = float(out["P_vec"][0]);
+        # Clipping bounds (so the interpolator does not return NaN)
+        self._P_min = float(out["P_vec"][0])
         self._P_max = float(out["P_vec"][-1])
-        self._H_min = float(out["H_vec"][0]);
+        self._H_min = float(out["H_vec"][0])
         self._H_max = float(out["H_vec"][-1])
 
         self._P_vec = np.asarray(out["P_vec"], dtype=float)
@@ -133,7 +135,7 @@ class Refrigerant:
         return T
 
     # ------------------------------------------------------------------
-    # Lokale Korrelation für h_int (Wärmeübergang Wand ↔ Kältemittel)
+    # Local correlation for h_int (wall ↔ refrigerant heat transfer)
     # ------------------------------------------------------------------
     def h_int_corr(self):
         return 5000.0
@@ -541,17 +543,17 @@ class Refrigerant:
         t0 = float(time)
         t1 = float(time + dt)
 
-        # 1) Aktuellen RHS "einstecken" (Randbedingungen/ Q_seg_list etc. dieser Makro-Stufe)
+        # 1) Plug in the current RHS (boundary conditions / Q_seg_list for this macro step)
         self._rhs_ptr = rhs
 
-        # 2) Solver einmalig initialisieren (oder hart neu starten, falls Dimension/Time nicht passt)
+        # 2) Initialize solver once (or hard restart if dimension/time mismatch)
         need_restart = (
                 self._bdf is None
                 or self._bdf_dim != y0.size
                 or abs(float(self._bdf.t) - t0) > 1e-12
         )
 
-        # Optional: wenn cfg_grid extern geändert wurde und nicht zu solver.y passt -> restart
+        # Optional: restart if cfg_grid was changed externally and no longer matches solver.y
         if (not need_restart) and (np.max(np.abs(self._bdf.y - y0)) > 1e-6):
             need_restart = True
             print("\033[93mRestarting the solver...\033[0m")
@@ -561,28 +563,28 @@ class Refrigerant:
                 fun=self._rhs_wrapper,
                 t0=t0,
                 y0=y0,
-                t_bound=np.inf,  # wir steuern das Stoppen selbst über max_step + while-loop
+                t_bound=np.inf,  # we control stopping via max_step + while-loop
                 rtol=1e-6,
                 atol=1e-8,
                 max_step=np.inf
             )
             self._bdf_dim = y0.size
 
-        # 3) Bis t1 vorwärts integrieren, ohne über t1 hinaus zu gehen
+        # 3) Integrate forward to t1 without stepping past it
         cycl_t0_ref = perf_counter()
         inner_steps = 0
 
-        # kleine Toleranz gegen Float-Rundung
+        # Small tolerance against float rounding
         while self._bdf.status == "running" and self._bdf.t < t1 - 1e-15:
             dt_rem = t1 - float(self._bdf.t)
-            # verhindere Overshoot über das Ende des Makroschritts
+            # Prevent overshoot beyond the end of the macro step
             self._bdf.max_step = dt_rem
             msg = self._bdf.step()
             inner_steps += 1
             if self._bdf.status == "failed":
                 raise RuntimeError(f"Refrigerant ODE solver failed: {msg}")
 
-        # End state (genau der aktuelle Zustand des persistenten Solvers)
+        # End state (current state of the persistent solver)
         y_end = self._bdf.y.copy()
         cycl_t1_ref = perf_counter()
 

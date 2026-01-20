@@ -6,52 +6,52 @@ import pickle
 def drho_dP_dH(
     self,
     fluid: str = "R134a",
-    # Tabellierungsbereich (P,H)
+    # Tabulation range (P,H)
     P_min: float = 1e5,
     P_max: float = 20e5,
     dP: float = 1e4,
     H_min: float = 2e5,
     H_max: float = 5e5,
     dH: float = 1e3,
-    # Wenn gesetzt: Ableitungen nur an diesen Punkten ausgeben
-    query_P=None,   # float oder array-like [Pa]
-    query_H=None,   # float oder array-like [J/kg]
-    # zentral ist i.d.R. stabiler als vorwärts
-    scheme: str = "central",  # "forward" oder "central"
-    # optional: Interpolatoren speichern/laden
+    # If set: return derivatives only at these points
+    query_P=None,   # float or array-like [Pa]
+    query_H=None,   # float or array-like [J/kg]
+    # Central is typically more stable than forward
+    scheme: str = "central",  # "forward" or "central"
+    # Optional: save/load interpolators
     save_path: str | None = None,
     load_path: str | None = None,
 ):
     """
-    Liefert partielle Ableitungen der Dichte ρ nach Druck P und Enthalpie H:
+    Return partial derivatives of density ρ with respect to pressure P and enthalpy H:
         dρ/dP [kg/m³/Pa], dρ/dH [kg/m³/(J/kg)].
 
-    Falls query_P/query_H gesetzt:
-        Rückgabe sind Ableitungen an diesen Punkten (gleiche Form wie query).
-    Sonst:
-        Rückgabe sind Ableitungsfelder auf dem Tabellengitter plus Interpolatoren.
+    If query_P/query_H are set:
+        return derivatives at those points (same shape as query).
+    Otherwise:
+        return derivative fields on the tabulation grid plus interpolators.
 
     Inputs:
-      - fluid: CoolProp Fluidstring (z.B. "R134a")
-      - P_min,P_max,dP: Druckbereich [Pa] und Schritt
-      - H_min,H_max,dH: Enthalpiebereich [J/kg] und Schritt
-      - query_P, query_H: Auswertepunkt(e) für Ableitungen
-      - scheme: "central" oder "forward"
-      - save_path/load_path: Pickle für Interpolatoren (optional)
+      - fluid: CoolProp fluid string (e.g. "R134a")
+      - P_min,P_max,dP: pressure range [Pa] and step
+      - H_min,H_max,dH: enthalpy range [J/kg] and step
+      - query_P, query_H: evaluation point(s) for derivatives
+      - scheme: "central" or "forward"
+      - save_path/load_path: pickle for interpolators (optional)
     """
 
     # ------------------------------------------------------------
-    # 0) Interpolatoren ggf. laden
+    # 0) Load interpolators if requested
     # ------------------------------------------------------------
     if load_path is not None:
         with open(load_path, "rb") as f:
             interps = pickle.load(f)
         rho_interp = interps["rho"]
-        # optional: wenn du auch direkt Ableitungsinterpolatoren speicherst
+        # Optional: if derivative interpolators are stored directly
         drho_dP_interp = interps.get("drho_dP", None)
         drho_dH_interp = interps.get("drho_dH", None)
 
-        # Wenn Ableitungsinterpolatoren vorhanden sind, direkt auswerten:
+        # If derivative interpolators exist, evaluate directly:
         if (query_P is not None) and (query_H is not None) and \
            (drho_dP_interp is not None) and (drho_dH_interp is not None):
             qP = np.asarray(query_P, dtype=float)
@@ -59,12 +59,12 @@ def drho_dP_dH(
             pts = np.stack([qP, qH], axis=-1)
             return drho_dP_interp(pts), drho_dH_interp(pts)
 
-        # sonst: wir bauen die Ableitungen unten neu (mit rho_interp)
-        # -> dafür brauchen wir das Gitter; wenn du "load only" willst,
-        #    speichere drho_dP/drho_dH mit ab.
-        #    (Weiter unten werden P_vec/H_vec sowieso erzeugt.)
+        # Otherwise build derivatives below (using rho_interp).
+        # -> We still need the grid; if you want "load only",
+        #    save drho_dP/drho_dH as well.
+        #    (P_vec/H_vec are created below anyway.)
     # ------------------------------------------------------------
-    # 1) Definitionsbereich (Tabellen-Gitter)
+    # 1) Definition range (tabulation grid)
     # ------------------------------------------------------------
     P_vec = np.arange(P_min, P_max + dP, dP, dtype=float)
     H_vec = np.arange(H_min, H_max + dH, dH, dtype=float)
@@ -73,7 +73,7 @@ def drho_dP_dH(
     shape = P_grid.shape
 
     # ------------------------------------------------------------
-    # 2) Thermophysikalische Eigenschaften (CoolProp) -> rho(P,H)
+    # 2) Thermophysical properties (CoolProp) -> rho(P,H)
     # ------------------------------------------------------------
     if load_path is None:
         P_flat = P_grid.ravel()
@@ -93,13 +93,13 @@ def drho_dP_dH(
             (P_vec, H_vec), T, bounds_error=False, fill_value=np.nan
         )
     else:
-        # rho_interp wurde geladen
+        # rho_interp was loaded
         pass
 
     # ------------------------------------------------------------
-    # 3) Numerische Ableitungen auf dem Gitter (für Interpolator)
+    # 3) Numerical derivatives on the grid (for interpolators)
     # ------------------------------------------------------------
-    # Punkte fürs Interpolieren müssen (...,2) sein:
+    # Points for interpolation must be (...,2):
     pts0 = np.stack([P_grid, H_grid], axis=-1)
     rho0 = rho_interp(pts0)
 
@@ -119,9 +119,9 @@ def drho_dP_dH(
         d_rho_dP = (rho_P_plus - rho_P_minus) / (2.0 * dP)
         d_rho_dH = (rho_H_plus - rho_H_minus) / (2.0 * dH)
     else:
-        raise ValueError("scheme muss 'forward' oder 'central' sein.")
+        raise ValueError("scheme must be 'forward' or 'central'.")
 
-    # Interpolatoren für die Ableitungen (praktisch für Solver)
+    # Interpolators for derivatives (useful for solvers)
     drho_dP_interp = RegularGridInterpolator(
         (P_vec, H_vec), d_rho_dP, bounds_error=False, fill_value=np.nan
     )
@@ -130,7 +130,7 @@ def drho_dP_dH(
     )
 
     # ------------------------------------------------------------
-    # 4) Optional speichern (inkl. Ableitungs-Interpolatoren)
+    # 4) Optional save (including derivative interpolators)
     # ------------------------------------------------------------
     if save_path is not None:
         with open(save_path, "wb") as f:
@@ -140,7 +140,7 @@ def drho_dP_dH(
             )
 
     # ------------------------------------------------------------
-    # 5) Output: entweder an query-Punkten oder ganze Felder
+    # 5) Output: either at query points or full fields
     # ------------------------------------------------------------
     if (query_P is not None) and (query_H is not None):
         qP = np.asarray(query_P, dtype=float)

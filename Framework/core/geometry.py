@@ -4,13 +4,15 @@ from typing import List, Tuple
 
 @dataclass(frozen=True)
 class FlatPlate:
-    L: float            # Charakteristische Länge
+    """Flat-plate geometry parameters."""
+    L: float            # Characteristic length
 
 @dataclass(frozen=True)
 class FinnTubedHX:
-    n_seg_l: float          # Anzahl Reihen in Flussrichtung der Luft
-    n_seg_r: float          # Anzahl Reihen in Flussrichtung des Kältemittel inlet
-    stacks: int             # Anzahl der Stapel
+    """Geometry and material data for the finned-tube heat exchanger."""
+    n_seg_l: float          # Number of rows in the air flow direction
+    n_seg_r: float          # Number of rows in the refrigerant inlet direction
+    stacks: int             # Number of stacks
     n_fin: float            # Number of fins per segment
     l_fin: float            # Length of the fins
     h_fin: float            # Height of the fins (usually h_fin=l_fin)
@@ -24,99 +26,109 @@ class FinnTubedHX:
     CP: str                 # Definition of the connection path
 
     def fin_gap(self):
+        """Return the fin gap (center-to-center pitch minus thickness)."""
         return self.fin_pitch_cc - self.fin_thickness
 
     def l_tube(self):
+        """Return the tube pitch length used for segment spacing."""
         return self.fin_pitch_cc + self.fin_thickness
 
     def A_tube_one_segment(self):
+        """Return the tube area per segment on the air side."""
         return self.d_tube_a * math.pi * self.fin_gap() * self.n_fin
 
     def A_fin_one_segment(self):
+        """Return the fin area per segment on the air side."""
         return 2.0*(self.l_fin*self.h_fin - ((self.d_tube_a**2)*math.pi)/4.0) * self.n_fin
 
     def A_one_segment(self):
+        """Return total air-side area per segment."""
         return self.A_tube_one_segment() + self.A_fin_one_segment()
 
     def A_one_segment_frost(self, s_frost: float) -> float:
         """
-        Effektive luftseitige Wärme-/Stoffübertragungsfläche pro Segment bei Frost.
-        Berücksichtigt rein geometrisch:
-          - reduzierter Finnenabstand (gap_eff = gap0 - 2*s)
-          - vergrösserter effektiver Rohrdurchmesser (d_eff = d0 + 2*s)
+        Effective air-side heat/mass transfer area per segment under frost.
+        Purely geometric effects:
+          - reduced fin gap (gap_eff = gap0 - 2*s)
+          - increased effective tube diameter (d_eff = d0 + 2*s)
         """
         s = max(float(s_frost), 0.0)
         if s <= 1e-12:
             return self.A_one_segment()
 
         gap0 = max(float(self.fin_gap()), 1e-9)
-        gap_eff = max(gap0 - 2.0 * s, 1e-9)  # Frost auf beiden Finnenflächen
+        gap_eff = max(gap0 - 2.0 * s, 1e-9)  # Frost on both fin faces
 
         d0 = float(self.d_tube_a)
-        d_eff = max(d0 + 2.0 * s, 1e-9)  # Rohr + Frost
+        d_eff = max(d0 + 2.0 * s, 1e-9)  # Tube + frost
 
-        # Tube-Fläche zwischen zwei Finnen (Länge ~ gap_eff)
+        # Tube area between two fins (length ~ gap_eff)
         A_tube = math.pi * d_eff * gap_eff * float(self.n_fin)
 
-        # Finnenfläche (beidseitig), abzüglich Kreisfläche um das Rohr (mit d_eff)
+        # Fin area (both sides), minus the tube cutout area (using d_eff)
         A_fin = 2.0 * (float(self.l_fin) * float(self.h_fin) - (math.pi * d_eff ** 2) / 4.0) * float(self.n_fin)
         A_fin = max(A_fin, 0.0)
 
         return A_tube + A_fin
 
     def d_rohr_i(self):
+        """Return the inner tube diameter."""
         return self.d_tube_a - 2 * self.tube_thickness
 
     def phi(self):
+        """Return fin efficiency factor (phi) based on geometry."""
         lr_uber_br = self.l_fin/self.h_fin
         phi_s = 1.28 * (self.l_fin / self.d_tube_a) * math.sqrt(lr_uber_br - 0.2)
         return (phi_s - 1) * (1 + 0.35 * math.log(phi_s))
 
     def x_rippe(self, alpha_f: float):
+        """Return the fin parameter x based on heat transfer coefficient."""
         gew_hoehe = self.phi() * self.d_tube_a / 2
         root = math.sqrt(2*alpha_f/(self.lambda_fin*self.fin_thickness))
         return gew_hoehe*root
 
     def mue_fin(self, alpha_f: float):
+        """Return the fin efficiency multiplier for the given alpha_f."""
         x = self.x_rippe(alpha_f)
         return math.tanh(x)/x
 
     def build_connection_path(self, variant: str = "serpentine") -> List[Tuple[int, int]]:
+        """Build a serpentine connection path through the segment grid."""
         n_l = int(self.n_seg_l)
         n_r = int(self.n_seg_r)
 
         if n_l <= 0 or n_r <= 0:
-            raise ValueError(f"n_seg_l und n_seg_r müssen > 0 sein (n_seg_l={n_l}, n_seg_r={n_r}).")
+            raise ValueError(f"n_seg_l and n_seg_r must be > 0 (n_seg_l={n_l}, n_seg_r={n_r}).")
 
         variant = variant.lower()
         path: List[Tuple[int, int]] = []
 
         if variant in ("serpentine"):
-            # Start oben rechts, spaltenweise Schlange nach links
+            # Start at the upper right, serpentine by columns toward the left
             for row_idx_from_bottom, i_l in enumerate(range(n_l - 1, -1, -1)):
                 if row_idx_from_bottom % 2 == 0:
-                    # gerade "Zeile von unten": rechts -> links
+                    # even "row from bottom": right -> left
                     col_range = range(n_r - 1, -1, -1)
                 else:
-                    # ungerade "Zeile von unten": links -> rechts
+                    # odd "row from bottom": left -> right
                     col_range = range(0, n_r)
                 for i_r in col_range:
                     path.append((i_l, i_r))
 
         elif variant in ("serpentine_variant"):
-            # Start unten rechts, zeilenweise Schlange nach links
+            # Start at the lower right, serpentine by rows toward the left
             for col_idx_from_right, i_r in enumerate(range(n_r - 1, -1, -1)):
                 if col_idx_from_right % 2 == 0:
-                    # gerade "Spalte von rechts": unten -> oben
+                    # even "column from right": bottom -> top
                     row_range = range(n_l - 1, -1, -1)
                 else:
-                    # ungerade "Spalte von rechts": oben -> unten
+                    # odd "column from right": top -> bottom
                     row_range = range(0, n_l)
                 for i_l in row_range:
                     path.append((i_l, i_r))
 
         else:
-            raise ValueError(f"Unbekannte variant='{variant}'. Unterstützt: "
+            raise ValueError(f"Unknown variant='{variant}'. Supported: "
                              f"'row_serpentine', 'col_serpentine'.")
 
         return path
