@@ -3,63 +3,66 @@ import numpy as np
 
 @dataclass(frozen=False)
 class CaseConfig:
-    # air data
+    """Simulation boundary conditions and material properties."""
+    # Air data
     m_dot: float        # kg/s air mass flow
-    T_a: float          # °C temperature air
-    v_a: float          # m/s velocity air
-    p_a: float          # Pa pressure air
-    RH: float           # relative humidity air
+    T_a: float          # °C air temperature
+    v_a: float          # m/s air velocity
+    p_a: float          # Pa air pressure
+    RH: float           # relative humidity
     w_amb: float        # kg/kg water vapor moisture content
-    rho_amb: float      # kg/m^3 density air
-    v_kin: float        # m^2/s kinematic viscosity air
-    lam: float          # W/mK heat conduction coefficient air
-    c_p_a: float        # J/kgK heat capacity air
+    rho_amb: float      # kg/m^3 air density
+    v_kin: float        # m^2/s kinematic viscosity of air
+    lam: float          # W/mK air thermal conductivity
+    c_p_a: float        # J/kgK air heat capacity
     D_std:  float       # m^2/s water vapor diffusion coefficient
-    C: float            # 1/s empirical water vapor absorbed coefficient
+    C: float            # 1/s empirical water vapor absorption coefficient
     isv: float          # J/kg latent heat of desublimation
 
-    # fan model
+    # Fan model
     use_fan: bool
     fan_dp0: float
     fan_V0: float
     dp_clean: float
 
-    # refrigerant data
-    ref_str: str        # Name of refrigerant
+    # Refrigerant data
+    ref_str: str        # refrigerant name
     T_tube: float       # °C tube temperature
     T_ref: float        # °C refrigerant temperature
-    p_ref: float        # Pa Refrigerant Pressure
-    h_ref: float        # J/kg specific Enthalpie
-    m_dot_ref: float    # kg/s Massflow Refrigerant at the inlet
-    m_dot_ref_out: float   # kg/s Massflow Refrigerant at the outlet
+    p_ref: float        # Pa refrigerant pressure
+    h_ref: float        # J/kg specific enthalpy
+    m_dot_ref: float    # kg/s refrigerant mass flow at the inlet
+    m_dot_ref_out: float   # kg/s refrigerant mass flow at the outlet
     x_ref: float        # [-]
 
-    # ice data
+    # Ice data
     rho_i: float        # kg/m^3 frost density (solid)
-    h_sub: float        # J/kg latent heat of ablimation for water vapor
+    h_sub: float        # J/kg latent heat of sublimation for water vapor
 
     frost_condition: bool = False
 
 @dataclass(frozen=False)
 class GridShape:
-    # numerics
-    t_end: float        # s endtime
+    """Discretization and solver control parameters."""
+    # Numerics
+    t_end: float        # s end time
     dt: float           # s time step
-    store_grid_every_x_it: int = 10 # store every x iterations
+    store_grid_every_x_it: int = 10  # store every x iterations
 
     nx: int = 100
     nr: int = 100
     ntheta: int = 90
 
-    #cal_steady_state: bool = True
+    # cal_steady_state: bool = True
     cal_air: bool = True
     cal_frost: bool = True
     cal_ref: bool = True
 
 @dataclass(frozen=False)
 class HeatPump:
-    #condenser
-    N_cond: float           # Number of plates
+    """Heat-pump (condenser and water side) configuration."""
+    # Condenser
+    N_cond: float           # number of plates
     p_ref_cond: float
     h_ref_cond: np.ndarray
     T_wall: np.ndarray
@@ -68,28 +71,29 @@ class HeatPump:
     A_flow_cond: float      # cross-sectional flow area [m2]
     t_plate: float          # Plate thickness
     height_cond: float      # heat exchanger height
-    length_cond: float      # heat exchanger height
+    length_cond: float      # heat exchanger length
     n_plates: int           # number of plates
     A_plate: float          # Condenser heat transfer area [m2]
     c_plate: float
     rho_plate: float
     lamda_plate: float
 
-    #water
+    # Water
     T_in_water: float
     m_water: float          # water mass flow
     c_water: float
     rho_water: float
 
-    # controller
+    # Controller
     use_controller: bool
 
     # Heat flows
     Q_cond: float = 0.0
     Q_evap: float = 0.0
 
-    #Compressor
+    # Compressor
     W_comp: float = 0.001
 
-    def RPM(self,t):
-        return min(1500,80*t)
+    def RPM(self, t):
+        """Return compressor RPM ramped from zero to 1500."""
+        return min(1500, 80 * t)

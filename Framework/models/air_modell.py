@@ -4,6 +4,7 @@ import math
 import numpy as np
 
 class Air:
+    """Air-side model including fan coupling and moisture/enthalpy tracking."""
 
     def __init__(self):
         self.ft_model = Frostmodell_Finn_and_Tube()
@@ -18,51 +19,54 @@ class Air:
         self._last_nu = None
 
     def _fan_enabled(self, cfg) -> bool:
+        """Return True if the fan model is enabled in cfg."""
         return bool(getattr(cfg, "use_fan", False))
 
     def _n_parallel_air_paths(self, geom) -> int:
+        """Return the number of parallel air paths through the HX."""
         n_y = geom.n_seg_r
         stacks = geom.stacks
         return max(1, n_y * stacks)
 
     def _sigma_from_frost(self, geom, s_frost) -> float:
+        """Compute free-flow area ratio sigma from frost thickness."""
         gap0 = float(geom.fin_gap())
         gap_eff = max(gap0 - 2.0 * float(s_frost), 1e-9)
         return float(np.clip(gap_eff / gap0, 0.001, 1.0))
 
     def _dp_sys_kays_london(self, Vdot: float, cfg, geom, sigma_blockage: float) -> float:
         """
-        Systemdruckverlust Δp_sys(Vdot) nach Kays & London (wie in SONG2025Chap9, Gl. 9.40–9.44).
+        System pressure drop Δp_sys(Vdot) after Kays & London (see SONG2025Chap9, Eq. 9.40–9.44).
 
-        Eingänge:
-            Vdot            Volumenstrom [m^3/s]
-            sigma_blockage  dimensionsloser Blockage-Faktor (0..1], aus Geometrieverengung (z.B. g_eff/g0)
+        Inputs:
+            Vdot            Volume flow rate [m^3/s]
+            sigma_blockage  dimensionless blockage factor (0..1], from geometry restriction (e.g. g_eff/g0)
 
-        Benötigte/angenommene Grössen:
-            - Stirnfläche A_fr ~ l_fin*h_fin*stacks
-            - Minimale freie Fläche A_min wird aus einem "clean"-Querschnitt und sigma_blockage skaliert
-            - Tube pitches Xt/Xl: falls nicht vorhanden -> Xt/Xl = 1
-            - Ki, Ko: als Parameter aus cfg (Default 0)
+        Required/assumed values:
+            - Face area A_fr ~ l_fin*h_fin*stacks
+            - Minimum free area A_min scales from a "clean" cross-section and sigma_blockage
+            - Tube pitches Xt/Xl: if missing -> Xt/Xl = 1
+            - Ki, Ko: parameters from cfg (default 0)
         """
         if Vdot <= 0.0:
             return 0.0
 
-        # Luftzustand (für Fan-Kennlinie reicht ein repräsentatives Dichteniveau)
+        # Air state (fan curve uses a representative density level)
         rho_in = float(getattr(cfg, "rho_amb", self._last_rho if self._last_rho is not None else 1.2))
-        rho_out = float(getattr(cfg, "rho_amb", rho_in))  # ohne Modellierung der Dichteänderung: rho_out ~ rho_in
+        rho_out = float(getattr(cfg, "rho_amb", rho_in))  # no density-change model: rho_out ~ rho_in
         nu = float(getattr(cfg, "v_kin", self._last_nu if self._last_nu is not None else 1.5e-5))
         mu = rho_in * nu
 
-        # Verlustbeiwerte (falls nicht vorgegeben: 0)
+        # Loss coefficients (default 0 if not provided)
         Ki = float(getattr(cfg, "Ki_in", 0.0))
         Ko = float(getattr(cfg, "Ko_out", 0.0))
 
-        # Stirnfläche (face area)
+        # Face area
         A_fr = float(geom.l_fin * geom.h_fin * getattr(geom, "stacks", 1)) * geom.n_fin
 
-        # Minimale freie Fläche (vereinfachtes Abbild deiner Geometrie):
+        # Minimum free area (simplified geometry):
         # clean: A_min_clean_seg ~ l_tube() * (h_fin - d_tube_a)
-        # total: über n_seg_r und stacks skaliert
+        # total: scaled by n_seg_r and stacks
         g0 = max(float(geom.h_fin - geom.d_tube_a), 1e-9)
         A_min_clean_seg = float(geom.l_tube() * g0)
 
@@ -70,18 +74,18 @@ class Air:
         stacks = int(getattr(geom, "stacks", 1))
         A_min_clean = (A_min_clean_seg * n_cols * stacks) * geom.n_fin
 
-        # Frost/Blockage
+        # Frost/blockage
         sigma_blockage = float(np.clip(sigma_blockage, 1e-6, 1.0))
         A_min = A_min_clean * sigma_blockage
 
-        # σ in Gl. (9.40): Verhältnis min. freie Fläche / Stirnfläche
+        # σ in Eq. (9.40): ratio of minimum free area to face area
         sigma = float(np.clip(A_min / max(A_fr, 1e-12), 1e-6, 1.0))
 
-        # Massenstromdichte bezogen auf A_min
+        # Mass flux based on A_min
         mdot = rho_in * Vdot
         G_a = mdot / max(A_min, 1e-12)  # [kg/(m^2 s)]
 
-        # Charakteristische Durchmesser / Pitches
+        # Characteristic diameters / pitches
         d = float(geom.d_tube_a)
         Dc = float(geom.d_tube_a + 2.0 * geom.fin_thickness)  # fin collar outside diameter
 
@@ -90,30 +94,30 @@ class Air:
         if Xt <= 0.0 or Xl <= 0.0:
             Xt, Xl = 1.0, 1.0
 
-        # Reynolds-Zahl auf Dc: Re = G_a*Dc/mu
+        # Reynolds number on Dc: Re = G_a*Dc/mu
         Re_Dc = max(G_a * Dc / max(mu, 1e-12), 1.0)
 
-        # Korrelationsexponenten (Gl. 9.42–9.44)
+        # Correlation exponents (Eq. 9.42–9.44)
         Nprime = max(float(getattr(geom, "n_seg_l", 1)), 1.0)  # Tube rows ~ n_seg_l
         F1 = -0.764 + 0.739 * (Xt / Xl) + 0.177 * (d / Dc) - 0.00758 / Nprime
         F2 = -15.689 + 64.021 / math.log(Re_Dc)
         F3 = 1.696 - 15.695 / math.log(Re_Dc)
 
-        # Reibungsbeiwert (Gl. 9.41) – mit F3 für (d/Dc)-Exponent (konsistent zu 9.44)
+        # Friction factor (Eq. 9.41) with F3 for (d/Dc) exponent (consistent with 9.44)
         f = 0.0267 * (Re_Dc ** F1) * ((Xt / Xl) ** F2) * ((d / Dc) ** F3)
 
-        # Hydraulischer Durchmesser: Dh = 4*A_min*L'/A_wet  (über "wetted perimeter" angenähert)
-        # A_wet_total aus Segmentflächen (fin+tube) skaliert; L' als Strömungslänge ~ n_rows * Xl
+        # Hydraulic diameter: Dh = 4*A_min*L'/A_wet (via wetted perimeter approximation)
+        # A_wet_total scaled from segment areas (fin+tube); L' as flow length ~ n_rows * Xl
         n_rows = int(getattr(geom, "n_seg_l", 1))
         A_wet_seg = float(getattr(geom, "A_one_segment")())
         A_wet = A_wet_seg * n_rows * n_cols * stacks
         Lprime = max(float(n_rows * Xl), 1e-9)
         Dh = max(4.0 * A_min * Lprime / max(A_wet, 1e-12), 1e-9)
 
-        # Dichte-Mittelterm (1/rho)_m
+        # Mean density term (1/rho)_m
         inv_rho_m = 0.5 * (1.0 / max(rho_in, 1e-12) + 1.0 / max(rho_out, 1e-12))
 
-        # Gl. (9.40)
+        # Eq. (9.40)
         term_in = (1.0 - sigma ** 2 + Ki)
         term_acc = 2.0 * (rho_in / max(rho_out, 1e-12) - 1.0)
         term_fric = 4.0 * f * (Lprime / Dh) * rho_in * inv_rho_m
@@ -124,13 +128,13 @@ class Air:
 
     def _solve_fan_operating_point(self, cfg, geom) -> float:
         """
-        Bestimme Vdot aus Δp_fan(Vdot)=Δp_sys(Vdot) via Bisektion.
-        Gibt mdot_total zurück.
+        Determine Vdot from Δp_fan(Vdot)=Δp_sys(Vdot) via bisection.
+        Returns mdot_total.
         """
         dp0 = float(getattr(cfg, "fan_dp0", 0.0))
         V0 = float(getattr(cfg, "fan_V0", 0.0))
         if dp0 <= 0.0 or V0 <= 0.0:
-            # Fallback: keine Fan-Daten -> mdot bleibt wie cfg.m_dot
+            # Fallback: no fan data -> mdot stays as cfg.m_dot
             return float(getattr(cfg, "m_dot", 0.0))
 
         # Fan curve
@@ -144,11 +148,11 @@ class Air:
         #SIGMA_FLOOR = 0.10
         #sigma_blockage = max(float(sigma_blockage), SIGMA_FLOOR)
 
-        # Residuum
+        # Residual
         def F(V):
             return dp_fan(V) - self._dp_sys_kays_london(V, cfg, geom, sigma_blockage)
 
-        # Bisektion im Intervall [0, V0]
+        # Bisection in [0, V0]
         a, b = 0.0, V0
         Fa, Fb = F(a), F(b)
         if Fa <= 0.0:
@@ -210,6 +214,12 @@ class Air:
                           m_s_seg: float,
                           dt: float,
                           dp_seg: float = 0.0):
+        """
+        Update outlet air properties for one segment in place.
+
+        Computes moisture and enthalpy changes given sensible heat and
+        deposited mass flow, then writes updated values into cfg_out.
+        """
 
         T_in = cfg_in.T_a
         w_in = cfg_in.w_amb
@@ -218,20 +228,20 @@ class Air:
         #if self._fan_enabled(cfg_in) and getattr(cfg_in, "fan_master", False):
         #    npar = self._n_parallel_air_paths(geom)
         #
-        #    # 1) Frost -> sigma (konservativ)
+        #    # 1) Frost -> sigma (conservative)
         #    sigma = self._sigma_from_frost(geom, s_frost_bevor)
         #    self._sigma_min = min(self._sigma_min, sigma)
         #
-        #    # 2) dp bookkeeping (aus deiner dp-Korrelation / aus dem Simulator übergeben)
+        #    # 2) dp bookkeeping
         #    self._last_dp_seg = float(dp_seg)
         #
-        #    # 3) Operating point: löse mdot_total aus Ventilator- und Systemkurve
+        #    # 3) Operating point: solve mdot_total from fan and system curves
         #    mdot_total = self._solve_fan_operating_point(cfg_in, geom)
         #
-        #    # Gesamtstrom zurückschreiben
+        #    # Write back total mass flow
         #    cfg_in.m_dot = float(mdot_total)
         #
-        #    # Strom pro Pfad für dieses Segment
+        #    # Flow per path for this segment
         #    m_dot_a = float(mdot_total) / npar
         #
         #    self._last_mdot_total = float(mdot_total)
@@ -302,4 +312,3 @@ class Air:
         cfg_out.v_a = v_out
 
         return T_out, w_out, p_out
-
