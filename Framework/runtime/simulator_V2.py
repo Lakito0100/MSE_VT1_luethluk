@@ -19,6 +19,7 @@ import threading
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class Simulator:
+    """Main simulation driver for the finned-tube HX model."""
     def __init__(self, geom, cfg, HP, stream_path: str | None = "sim_grid_log", fields=("t")):
         self.rec = ResultRecorder(fields=fields, stream_path=f"{stream_path}.jsonl")
 
@@ -43,6 +44,7 @@ class Simulator:
 
 
     def run(self, cfg, geom, gs, model):
+        """Run the transient simulation over the configured time horizon."""
         input_cfg = copy.deepcopy(cfg)
         #input_cfg.fan_master = True
         cfg_grid, st_grid = build_segment_grids(base_cfg=cfg, geom=geom, gs=gs)
@@ -53,7 +55,7 @@ class Simulator:
         _tls = threading.local()
 
         def _get_thread_models():
-            # Wichtig: pro Thread eigene Instanzen (verhindert Race-Conditions, falls Models internen Zustand haben)
+            # Important: thread-local instances prevent race conditions if models keep state
             if not hasattr(_tls, "model_e"):
                 _tls.model_e = model.Frostmodell_Edge()
                 _tls.model_ft = model.Frostmodell_Finn_and_Tube()
@@ -73,16 +75,15 @@ class Simulator:
                   "\t Time: " + f'{t:.2f}' +
                   " s | " + f'{t / 60:.1f} min')
 
-            # --- pro Zeitschritt ---
+            # --- per time step ---
             Q_seg_x0_list = np.zeros((n_x, n_y), dtype=float)
             t_iteration_start = time.perf_counter()
 
-            # gs.t einmal pro Zeitschritt setzen (nicht in Threads)
             gs.t = t
 
-            # --- Fan operating point: einmal pro Zeitschritt ---
+            # --- Fan operating point: once per time step ---
             if self.air._fan_enabled(input_cfg):
-                # konservativ: worst-case Vereisung (max s_ft) -> kleinste freie Querschnittsfläche
+                # Conservative: worst-case icing (max s_ft) -> smallest free cross-section
                 s_max_step = max(float(st_grid[ix][iy].s_ft) for ix in range(n_x) for iy in range(n_y))
 
                 sigma = self.air._sigma_from_frost(geom, s_max_step)
@@ -102,7 +103,7 @@ class Simulator:
                 ix, iy = info["ix"], info["iy"]
                 parts = [f"Seg[{ix},{iy}]"]
 
-                # Edge / FT nur anzeigen, wenn berechnet
+                # Show Edge / FT only when computed
                 if info["edge"] is not None:
                     iter_e, res_w_e, res_T_e, dt_e = info["edge"]
                     parts.append(f"Edge(it={iter_e}, w={res_w_e:.3e}, T={res_T_e:.3e}, ct={dt_e:.3f} s)")
@@ -110,13 +111,13 @@ class Simulator:
                     iter_ft, res_w_ft, res_T_ft, dt_ft = info["ft"]
                     parts.append(f"FT(it={iter_ft}, w={res_w_ft:.3e}, T={res_T_ft:.3e}, ct={dt_ft:.3f} s)")
 
-                # Air immer anzeigen
+                # Always show air
                 T_out, w_out, p_out = info["air"]
                 parts.append(f"Air(T={T_out:.2f} °C, w={w_out:.3e} kg/kg, P={p_out:.3e} Pa)")
 
                 line = " | ".join(parts)
 
-                # Warnings/Errors als Zusatzzeilen, aber weiterhin geordnet und lesbar
+                # Warnings/errors as extra lines, still ordered and readable
                 extra = []
                 extra.extend(info["warn"])
                 extra.extend(info["err"])
@@ -129,7 +130,7 @@ class Simulator:
                 st  = st_grid[ix][iy]
                 st.t = t
 
-                # upstream nur lesen
+                # Upstream values are read-only
                 if ix == 0:
                     cfg_up = input_cfg
                 else:
@@ -188,7 +189,7 @@ class Simulator:
                     t1_edge = time.perf_counter()
                     info["edge"] = (iter_e, res_w_e, res_T_e, t1_edge - t0_edge)
 
-                # ---------------- Updating the finn and tube state ----------------
+                # ---------------- Updating the fin and tube state ----------------
                 if cfg.frost_condition:
                     t0_ft = time.perf_counter()
                     iter_ft = 0
@@ -234,7 +235,7 @@ class Simulator:
 
                 return iy, q_for_list, info
 
-            # --- Parallel über iy, sequenziell über ix ---
+            # --- Parallel over iy, sequential over ix ---
             for ix in range(n_x):
                 infos_by_iy = [None] * n_y
 
@@ -247,7 +248,7 @@ class Simulator:
                         max_rh_wall_step = max(max_rh_wall_step, info["rh_wall"])
                         any_frost_condition_step = any_frost_condition_step or info["frost_condition"]
 
-                # Geordnet ausgeben (iy=0..n_y-1), aber kompakt
+                # Print in order (iy=0..n_y-1), compact output
                 for iy in range(n_y):
                     info = infos_by_iy[iy]
                     if info is not None:
@@ -339,7 +340,7 @@ class Simulator:
                 for st_ij in st_row
             )
 
-            # einfache Zeitsignale im Speicher halten
+            # Store simple time series in memory
             self.rec.push(t=t,
                           EER=EER,
                           COP=COP,
@@ -449,16 +450,16 @@ def build_segment_grids(base_cfg,
                         geom,
                         gs):
     """
-    Erzeugt 2D-Listen (Grids) von CaseConfig und SimState:
-    - erste Dimension: x-Richtung (Luftfluss) -> n_seg_l
-    - zweite Dimension: y-Richtung (Reihen in Kältemittel-Richtung) -> n_seg_r
+    Create 2D lists (grids) of CaseConfig and SimState.
+    - first dimension: x direction (air flow) -> n_seg_l
+    - second dimension: y direction (rows in refrigerant direction) -> n_seg_r
 
-    Rückgabe:
+    Returns:
         cfg_grid[ix][iy], st_grid[ix][iy]
     """
 
-    n_x = int(geom.n_seg_l)   # Segmente in Luftflussrichtung
-    n_y = int(geom.n_seg_r)   # Segmente in "Reihen"-Richtung
+    n_x = int(geom.n_seg_l)   # Segments in air-flow direction
+    n_y = int(geom.n_seg_r)   # Segments in "row" direction
 
     cfg_grid = [[None for _ in range(n_y)] for _ in range(n_x)]
     st_grid  = [[None for _ in range(n_y)] for _ in range(n_x)]
