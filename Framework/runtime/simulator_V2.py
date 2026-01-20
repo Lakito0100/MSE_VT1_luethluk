@@ -333,7 +333,11 @@ class Simulator:
 
             T_water_outlet = self.HP.T_water[-1]
 
-            A_evap_overall = geom.A_one_segment_frost()*geom.n_seg_r*geom.n_seg_l*geom.stacks
+            A_evap_overall = sum(
+                geom.A_one_segment_frost(st_ij.s_ft)
+                for st_row in st_grid
+                for st_ij in st_row
+            )
 
             # einfache Zeitsignale im Speicher halten
             self.rec.push(t=t,
