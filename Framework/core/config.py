@@ -58,6 +58,10 @@ class GridShape:
     cal_frost: bool = True
     cal_ref: bool = True
 
+    #dynamic models
+    change_humidity: bool = True
+    change_temperature: bool = True
+
 @dataclass(frozen=False)
 class HeatPump:
     """Heat-pump (condenser and water side) configuration."""

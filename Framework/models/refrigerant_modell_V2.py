@@ -6,6 +6,7 @@ from scipy.interpolate import interp1d
 import CoolProp.CoolProp as CP
 from CoolProp.CoolProp import PropsSI
 from Framework.models.derivatives_of_rho import drho_dP_dH
+from CoolProp.CoolProp import AbstractState, PSmass_INPUTS, HmassP_INPUTS
 
 
 @dataclass
@@ -141,10 +142,10 @@ class Refrigerant:
         return 5000.0
 
     def h_int_corr_cond(self):
-        return 5000.0
+        return 10000.0
 
     def h_int_corr_water(self):
-        return 4000.0
+        return 10000.0
 
     def valve_controller(self, t, P_suction=None, h_suction=None):
         """
@@ -169,12 +170,12 @@ class Refrigerant:
         # -----------------------------
         # controller settings
         # -----------------------------
-        SH_set = 8.0  # [K] target superheat
+        SH_set = 10.0  # [K] target superheat
         Kp = 0.25  # [%/K]
         Ki = 0.04  # [%/(K*s)]
         u_min = 0.0  # [%]
         u_max = 100.0  # [%]
-        u0 = 20.0  # [%] bias / initial opening
+        u0 = 50.0  # [%] bias / initial opening
         T_sample = 0.1 # [s] Sample time for controller
 
         if t <= 60:
@@ -250,7 +251,8 @@ class Refrigerant:
         Kv = 0.25
 
         try:
-            rho = PropsSI("D", "P", pi, "H", hi, self.fluid)
+            #rho = PropsSI("D", "P", pi, "H", hi, self.fluid)
+            rho, _, _ = self.rho_and_derivs_vec(pi, hi)
         except Exception:
             return 0.0, hi
 
@@ -266,7 +268,7 @@ class Refrigerant:
     def compressor_model(self, pi, hi, po, RPM):
         if RPM <= 1e-6:
             return 0.0, hi
-
+        TTSE = AbstractState("TTSE&HEOS", self.fluid)
         n = 4  # number of cylinders
         bore = 0.06  # bore [m]
         stroke = 0.042  # stroke [m]
@@ -281,10 +283,16 @@ class Refrigerant:
         eta_v = float(np.clip(eta_v, 0.05, 1.20))
         eta_is = float(np.clip(eta_is, 0.05, 0.90))
 
-        s = PropsSI("S", "P", pi, "H", hi, self.fluid)
-        h_is = PropsSI('H', 'P', po, 'S', s, self.fluid)
+        TTSE.update(HmassP_INPUTS, hi, pi)
+        s = TTSE.smass()
+        # s = PropsSI("S", "P", pi, "H", hi, self.fluid)
+        TTSE.update(PSmass_INPUTS, po, s)
+        h_is = TTSE.hmass()
+        # h_is = PropsSI('H', 'P', po, 'S', s, self.fluid)
         #h_is = h_is.reshape(po.shape)
-        rho = PropsSI("D", "P", pi, "H", hi, self.fluid)
+        # rho = PropsSI("D", "P", pi, "H", hi, self.fluid)
+        rho, _, _ = self.rho_and_derivs_vec(pi, hi)
+
         ho = hi + (h_is - hi) / eta_is
         m = RPM / 60 * Vd * eta_v * rho
 
@@ -654,9 +662,11 @@ class Refrigerant:
         evap_exit = fmt_sh_sc(P_end, h_end[-1], fluid, kind="evap")
         cond_exit = fmt_sh_sc(P_cond_end, h_cond_end[-1], fluid, kind="cond")
 
+        valve_pos_current = self.valve_controller(t1,P_end,h_end[-1])
+
         print(
             f"HP(it={n_inner}, evap_out={evap_exit}, cond_out={cond_exit}, "
-            f"Q_evap={Q_evap:.2f} W, Q_cond={Q_cond:.2f} W, ct={ref_time:.3f} s)"
+            f"Q_evap={Q_evap:.1f} W, Q_cond={Q_cond:.1f} W, Valve={valve_pos_current:.1f} %, ct={ref_time:.3f} s)"
         )
 
         # ----------------------------------------------------------

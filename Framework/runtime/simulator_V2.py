@@ -380,10 +380,13 @@ class Simulator:
 
             # Dynamic models
 
-            #input_cfg.T_a = dynamic_models.T_a_profile(t, 20.0, 2.0, 200.0, 120.0)
-            input_cfg.w_amb = dynamic_models.w_amb_profile(t,input_cfg.T_a,input_cfg.p_a,0.0,0.65,4*60.0,20.0)
+            if gs.change_temperature:
+                input_cfg.T_a = dynamic_models.T_a_profile(t, 5.0, 0.0, 30*60.0, 60.0)
 
-            #if t >= 200.0:
+            if gs.change_humidity:
+                input_cfg.w_amb = dynamic_models.w_amb_profile(t,input_cfg.T_a,input_cfg.p_a,0.0,0.8,4*60.0,20.0)
+
+            #if t >= 4*60.0:
             #    gs.cal_frost = True
 
         # Updating the refrigerant state -------------------------------------------------------------------------------
