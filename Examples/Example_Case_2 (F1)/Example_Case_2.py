@@ -22,7 +22,7 @@ RH = 0.0
 v_a = 1.2
 
 #water
-T_in_water = 50.0
+T_in_water = 40.0
 N_cond = 30
 
 #refrigerant
