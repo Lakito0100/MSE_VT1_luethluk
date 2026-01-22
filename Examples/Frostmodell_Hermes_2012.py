@@ -101,10 +101,10 @@ def Ts_of_s(s: float, geom: Flatplate, air: AirProperty, op: OpPoint, hp: Hermes
 if __name__ == "__main__":
 
     # Randbedingungen
-    T_a = 16.0      # °C Lufttemperatur
-    T_w = -4.0      # °C Wandtemperatur
+    T_a = 2.0      # °C Lufttemperatur
+    T_w = -8.0      # °C Wandtemperatur
     RH  = 0.8       # Relative Luftfeuchtigkeit
-    u_a = 1.0       # m/s
+    u_a = 1.2       # m/s
     p = 103500      # Pa
 
     # Feuchte-Luft
@@ -168,8 +168,8 @@ if __name__ == "__main__":
              fontsize=12, ha='left', va='top', transform=plt.gca().transAxes)
     plt.xlabel("Zeit [min]"); plt.ylabel("Frostdicke $x_s$ [mm]")
     plt.title("Hermes (2012)")
-    plt.xlim([0, 120])
-    plt.ylim([0, 5])
+    plt.xlim([0, 60])
+    plt.ylim([0, 2])
     plt.grid(True); plt.legend(); plt.tight_layout(); plt.show()
 
 

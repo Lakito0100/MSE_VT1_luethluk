@@ -6,6 +6,7 @@ from scipy.interpolate import interp1d
 import CoolProp.CoolProp as CP
 from CoolProp.CoolProp import PropsSI
 from Framework.models.derivatives_of_rho import drho_dP_dH
+from CoolProp.CoolProp import AbstractState, PSmass_INPUTS, HmassP_INPUTS
 
 
 @dataclass
@@ -141,10 +142,10 @@ class Refrigerant:
         return 5000.0
 
     def h_int_corr_cond(self):
-        return 5000.0
+        return 10000.0
 
     def h_int_corr_water(self):
-        return 4000.0
+        return 10000.0
 
     def valve_controller(self, t, P_suction=None, h_suction=None):
         """
@@ -169,7 +170,7 @@ class Refrigerant:
         # -----------------------------
         # controller settings
         # -----------------------------
-        SH_set = 8.0  # [K] target superheat
+        SH_set = 10.0  # [K] target superheat
         Kp = 0.25  # [%/K]
         Ki = 0.04  # [%/(K*s)]
         u_min = 0.0  # [%]
@@ -250,7 +251,8 @@ class Refrigerant:
         Kv = 0.25
 
         try:
-            rho = PropsSI("D", "P", pi, "H", hi, self.fluid)
+            #rho = PropsSI("D", "P", pi, "H", hi, self.fluid)
+            rho, _, _ = self.rho_and_derivs_vec(pi, hi)
         except Exception:
             return 0.0, hi
 
@@ -266,7 +268,7 @@ class Refrigerant:
     def compressor_model(self, pi, hi, po, RPM):
         if RPM <= 1e-6:
             return 0.0, hi
-
+        TTSE = AbstractState("TTSE&HEOS", self.fluid)
         n = 4  # number of cylinders
         bore = 0.06  # bore [m]
         stroke = 0.042  # stroke [m]
@@ -281,10 +283,16 @@ class Refrigerant:
         eta_v = float(np.clip(eta_v, 0.05, 1.20))
         eta_is = float(np.clip(eta_is, 0.05, 0.90))
 
-        s = PropsSI("S", "P", pi, "H", hi, self.fluid)
-        h_is = PropsSI('H', 'P', po, 'S', s, self.fluid)
+        TTSE.update(HmassP_INPUTS, hi, pi)
+        s = TTSE.smass()
+        # s = PropsSI("S", "P", pi, "H", hi, self.fluid)
+        TTSE.update(PSmass_INPUTS, po, s)
+        h_is = TTSE.hmass()
+        # h_is = PropsSI('H', 'P', po, 'S', s, self.fluid)
         #h_is = h_is.reshape(po.shape)
-        rho = PropsSI("D", "P", pi, "H", hi, self.fluid)
+        # rho = PropsSI("D", "P", pi, "H", hi, self.fluid)
+        rho, _, _ = self.rho_and_derivs_vec(pi, hi)
+
         ho = hi + (h_is - hi) / eta_is
         m = RPM / 60 * Vd * eta_v * rho
 
