@@ -174,7 +174,7 @@ class Refrigerant:
         Ki = 0.04  # [%/(K*s)]
         u_min = 0.0  # [%]
         u_max = 100.0  # [%]
-        u0 = 20.0  # [%] bias / initial opening
+        u0 = 50.0  # [%] bias / initial opening
         T_sample = 0.1 # [s] Sample time for controller
 
         if t <= 60:
