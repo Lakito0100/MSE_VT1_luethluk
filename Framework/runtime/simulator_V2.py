@@ -236,6 +236,9 @@ class Simulator:
                 return iy, q_for_list, info
 
             # --- Parallel over iy, sequential over ix ---
+            print_every = gs.print_output_every_x_it
+            do_print = (it % print_every == 0) or stop_event.is_set()
+
             for ix in range(n_x):
                 infos_by_iy = [None] * n_y
 
@@ -244,15 +247,21 @@ class Simulator:
                     for fut in as_completed(futures):
                         iy, q_val, info = fut.result()
                         Q_seg_x0_list[ix, iy] = q_val
-                        infos_by_iy[iy] = info
                         max_rh_wall_step = max(max_rh_wall_step, info["rh_wall"])
                         any_frost_condition_step = any_frost_condition_step or info["frost_condition"]
 
+                        if do_print:
+                            infos_by_iy[iy] = info
+
                 # Print in order (iy=0..n_y-1), compact output
-                for iy in range(n_y):
-                    info = infos_by_iy[iy]
-                    if info is not None:
-                        print(_fmt_segment_line(info))
+
+                if do_print:
+                    for iy in range(n_y):
+                        info = infos_by_iy[iy]
+                        if info is not None:
+                            print(_fmt_segment_line(info))
+                elif not do_print and ix == 0:
+                    print(f"Frost and Air output in {print_every - (it % print_every)} Time Steps.")
 
             if stop_event.is_set():
                 gs.t_end = t
