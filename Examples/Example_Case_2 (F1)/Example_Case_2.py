@@ -12,7 +12,7 @@ from Framework.visualisation import plot
 from Framework.runtime.recorder import ResultRecorder
 
 sim_run = True
-read_data = True
+read_data = False
 plots = False
 
 #air
@@ -22,7 +22,7 @@ RH = 0.0
 v_a = 1.2
 
 #water
-T_in_water = 40.0
+T_in_water = 50.0
 N_cond = 30
 
 #refrigerant
@@ -31,12 +31,12 @@ rho_amb_in = 1.0 / HAPropsSI("Vha","T",T_a+273.15,"P",P,"R",RH)
 
 refrigerant = "R134a"
 #at evaportor
-x_evap = 0.4
+x_evap = 0.45
 p_ref_evap = PropsSI("P", "T", T_a + 273.15, "Q", 0, refrigerant)
 h_ref_evap = PropsSI("H", "T", T_a + 273.15, "Q", x_evap, refrigerant)
 
 #at condenser
-x_cond = 0.4
+x_cond = 0.45
 p_ref_cond = PropsSI("P", "T", T_in_water + 273.15, "Q", 0, refrigerant)
 h_ref_cond = PropsSI("H", "T", T_in_water + 273.15, "Q", x_cond, refrigerant)
 
