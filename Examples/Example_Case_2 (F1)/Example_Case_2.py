@@ -13,6 +13,7 @@ from Framework.runtime.recorder import ResultRecorder
 
 sim_run = True
 read_data = True
+plots = False
 
 #air
 T_a = 5.0
@@ -30,12 +31,12 @@ rho_amb_in = 1.0 / HAPropsSI("Vha","T",T_a+273.15,"P",P,"R",RH)
 
 refrigerant = "R134a"
 #at evaportor
-x_evap = 0.45
+x_evap = 0.4
 p_ref_evap = PropsSI("P", "T", T_a + 273.15, "Q", 0, refrigerant)
 h_ref_evap = PropsSI("H", "T", T_a + 273.15, "Q", x_evap, refrigerant)
 
 #at condenser
-x_cond = 0.45
+x_cond = 0.4
 p_ref_cond = PropsSI("P", "T", T_in_water + 273.15, "Q", 0, refrigerant)
 h_ref_cond = PropsSI("H", "T", T_in_water + 273.15, "Q", x_cond, refrigerant)
 
@@ -59,6 +60,7 @@ geom = FinnTubedHX(
 gs = GridShape(
     t_end = 4*60.0,      # s endtime
     dt = 0.1,           # s time step
+    print_output_every_x_it = 20,
     store_grid_every_x_it = 100,
 
     nx = 100,
@@ -163,236 +165,236 @@ if read_data:
     data = ResultRecorder.read_results_csv_json(result_file)
     results = ResultRecorder.from_jsonl(result_file)
 
+if plots:
+    snapshots = results.grid_snapshots
 
-snapshots = results.grid_snapshots
+    fig, ax, Z_sft = plot.plot_segment_field_grid(
+        snapshots,
+        field="v_a",
+        source="cfg",
+        t_idx=-1,          # letzter Zeitschritt
+        title="Geschwindigkeit der Luft über alle Segmente",
+        cmap="viridis",
+    )
 
-fig, ax, Z_sft = plot.plot_segment_field_grid(
-    snapshots,
-    field="v_a",
-    source="cfg",
-    t_idx=-1,          # letzter Zeitschritt
-    title="Geschwindigkeit der Luft über alle Segmente",
-    cmap="viridis",
-)
+    fig, ax, Z_sft = plot.plot_segment_field_grid(
+        snapshots,
+        field="s_ft",
+        source="st",       # aus SimState
+        t_idx=-1,          # letzter Zeitschritt
+        title="Frostdicke s_ft über alle Segmente",
+        cmap="viridis"
+    )
 
-fig, ax, Z_sft = plot.plot_segment_field_grid(
-    snapshots,
-    field="s_ft",
-    source="st",       # aus SimState
-    t_idx=-1,          # letzter Zeitschritt
-    title="Frostdicke s_ft über alle Segmente",
-    cmap="viridis"
-)
+    fig, ax, Z_Ta = plot.plot_segment_field_grid(
+        snapshots,
+        field="T_a",
+        source="cfg",      # aus CaseConfig
+        t_idx=-1,
+        title="Lufttemperatur T_a über alle Segmente",
+        cmap="plasma"
+    )
 
-fig, ax, Z_Ta = plot.plot_segment_field_grid(
-    snapshots,
-    field="T_a",
-    source="cfg",      # aus CaseConfig
-    t_idx=-1,
-    title="Lufttemperatur T_a über alle Segmente",
-    cmap="plasma"
-)
+    fig, ax, Z_Ta = plot.plot_segment_field_grid(
+        snapshots,
+        field="w_amb",
+        source="cfg",      # aus CaseConfig
+        t_idx=-1,
+        title="Feuchtigkeit der Luft w_amb über alle Segmente",
+        cmap="viridis"
+    )
 
-fig, ax, Z_Ta = plot.plot_segment_field_grid(
-    snapshots,
-    field="w_amb",
-    source="cfg",      # aus CaseConfig
-    t_idx=-1,
-    title="Feuchtigkeit der Luft w_amb über alle Segmente",
-    cmap="viridis"
-)
+    fig, ax, Z_Ta = plot.plot_segment_field_grid(
+        snapshots,
+        field="RH",
+        source="cfg",      # aus CaseConfig
+        t_idx=-1,
+        title="relative Feuchtigkeit der Luft w_amb über alle Segmente",
+        cmap="viridis"
+    )
 
-fig, ax, Z_Ta = plot.plot_segment_field_grid(
-    snapshots,
-    field="RH",
-    source="cfg",      # aus CaseConfig
-    t_idx=-1,
-    title="relative Feuchtigkeit der Luft w_amb über alle Segmente",
-    cmap="viridis"
-)
+    fig, ax, Z_Ta = plot.plot_segment_field_grid(
+        snapshots,
+        field="T_tube",
+        source="cfg",      # aus CaseConfig
+        t_idx=-1,
+        title="Temperatur der Wände über alle Segmente",
+        cmap="plasma"
+    )
 
-fig, ax, Z_Ta = plot.plot_segment_field_grid(
-    snapshots,
-    field="T_tube",
-    source="cfg",      # aus CaseConfig
-    t_idx=-1,
-    title="Temperatur der Wände über alle Segmente",
-    cmap="plasma"
-)
+    fig, ax, Z_Ta = plot.plot_segment_field_grid(
+        snapshots,
+        field="T_ref",
+        source="cfg",      # aus CaseConfig
+        t_idx=-1,
+        title="Temperatur des Kältemittels über alle Segmente",
+        cmap="plasma"
+    )
 
-fig, ax, Z_Ta = plot.plot_segment_field_grid(
-    snapshots,
-    field="T_ref",
-    source="cfg",      # aus CaseConfig
-    t_idx=-1,
-    title="Temperatur des Kältemittels über alle Segmente",
-    cmap="plasma"
-)
+    fig, ax, Z_Ta = plot.plot_segment_field_grid(
+        snapshots,
+        field="h_ref",
+        source="cfg",      # aus CaseConfig
+        t_idx=-1,
+        title="Enthalpie des Kältemittels über alle Segmente",
+        cmap="viridis"
+    )
 
-fig, ax, Z_Ta = plot.plot_segment_field_grid(
-    snapshots,
-    field="h_ref",
-    source="cfg",      # aus CaseConfig
-    t_idx=-1,
-    title="Enthalpie des Kältemittels über alle Segmente",
-    cmap="viridis"
-)
+    fig, ax, Z_Ta = plot.plot_segment_field_grid(
+        snapshots,
+        field="p_ref",
+        source="cfg",      # aus CaseConfig
+        t_idx=-1,
+        title="Druck vom Kältemittel über alle Segmente",
+        cmap="viridis"
+    )
 
-fig, ax, Z_Ta = plot.plot_segment_field_grid(
-    snapshots,
-    field="p_ref",
-    source="cfg",      # aus CaseConfig
-    t_idx=-1,
-    title="Druck vom Kältemittel über alle Segmente",
-    cmap="viridis"
-)
+    fig, ax, Z_Ta = plot.plot_segment_field_grid(
+        snapshots,
+        field="x_ref",
+        source="cfg",      # aus CaseConfig
+        t_idx=-1,
+        title="X des Kältemittel über alle Segmente",
+        cmap="viridis"
+    )
 
-fig, ax, Z_Ta = plot.plot_segment_field_grid(
-    snapshots,
-    field="x_ref",
-    source="cfg",      # aus CaseConfig
-    t_idx=-1,
-    title="X des Kältemittel über alle Segmente",
-    cmap="viridis"
-)
+    plot.plot_logph_cycles(
+        ref=cfg.ref_str,
+        t=data["t"],
+        cycle_ph=data["cycle_ph"],
+        at_time=gs.t_end,
+        isotherms=True,
+        iso_Ts_C=[-50,-40,-30,-20,-10,0,10,20,30,40,50,60,70,80,90,100],
+        save_path="Plots/logph_at_t.png"
+    )
 
-plot.plot_logph_cycles(
-    ref=cfg.ref_str,
-    t=data["t"],
-    cycle_ph=data["cycle_ph"],
-    at_time=gs.t_end,
-    isotherms=True,
-    iso_Ts_C=[-50,-40,-30,-20,-10,0,10,20,30,40,50,60,70,80,90,100],
-    save_path="Plots/logph_at_t.png"
-)
+    plot.plot_logph_cycles(
+        ref=cfg.ref_str,
+        t=data["t"],
+        cycle_ph=data["cycle_ph"],
+        t_start=4*60.0,
+        t_end=gs.t_end,
+        every_s=10*60.0,   # alle x s ein Kreisprozess
+        isotherms=True,
+        iso_Ts_C=[-50,-40,-30,-20,-10,0,10,20,30,40,50,60,70,80,90,100],
+        title="Kreisprozess über die Zeit",
+        save_path="Plots/logph_t_vec.png"
+    )
 
-plot.plot_logph_cycles(
-    ref=cfg.ref_str,
-    t=data["t"],
-    cycle_ph=data["cycle_ph"],
-    t_start=4*60.0,
-    t_end=gs.t_end,
-    every_s=10*60.0,   # alle x s ein Kreisprozess
-    isotherms=True,
-    iso_Ts_C=[-50,-40,-30,-20,-10,0,10,20,30,40,50,60,70,80,90,100],
-    title="Kreisprozess über die Zeit",
-    save_path="Plots/logph_t_vec.png"
-)
+    plot.plot_any(kind="time vs any",
+                  x=data['t'], y=data['EER'],
+                  xlabel="Zeit [s]", ylabel="EER",
+                  title=f"EER", marker=None, ylimitter=[0, 4],
+                  save_path="Plots/EER.png")
 
-plot.plot_any(kind="time vs any",
-              x=data['t'], y=data['EER'],
-              xlabel="Zeit [s]", ylabel="EER",
-              title=f"EER", marker=None, ylimitter=[0, 4],
-              save_path="Plots/EER.png")
+    plot.plot_any(kind="time vs any",
+                  x=data['t'], y=data['COP'],
+                  xlabel="Zeit [s]", ylabel="COP",
+                  title=f"COP", marker=None, ylimitter=[0, 4],
+                  save_path="Plots/COP.png")
 
-plot.plot_any(kind="time vs any",
-              x=data['t'], y=data['COP'],
-              xlabel="Zeit [s]", ylabel="COP",
-              title=f"COP", marker=None, ylimitter=[0, 4],
-              save_path="Plots/COP.png")
+    plot.plot_any(kind="time vs any",
+                  x=data['t'], y=data['Q_evap'],
+                  xlabel="Zeit [s]", ylabel="Wärmefluss [W]",
+                  title=f"Eingehende Wärmeleistung", marker=None,
+                  save_path="Plots/Q_evap.png")
 
-plot.plot_any(kind="time vs any",
-              x=data['t'], y=data['Q_evap'],
-              xlabel="Zeit [s]", ylabel="Wärmefluss [W]",
-              title=f"Eingehende Wärmeleistung", marker=None,
-              save_path="Plots/Q_evap.png")
+    plot.plot_any(kind="time vs any",
+                  x=data['t'], y=data['h_eff_mean'],
+                  xlabel="Zeit [s]", ylabel="Wärmeübergangskoeffizient [W/(m^2 K)]",
+                  title=f"mittlerer Wärmeübergangskoeffizient Luftseitig", marker=None,
+                  save_path="Plots/h_eff_mean.png")
 
-plot.plot_any(kind="time vs any",
-              x=data['t'], y=data['h_eff_mean'],
-              xlabel="Zeit [s]", ylabel="Wärmeübergangskoeffizient [W/(m^2 K)]",
-              title=f"mittlerer Wärmeübergangskoeffizient Luftseitig", marker=None,
-              save_path="Plots/h_eff_mean.png")
+    plot.plot_any(kind="time vs any",
+                  x=data['t'], y=data['A_evap'],
+                  xlabel="Zeit [s]", ylabel="Wärmeübertragungsfläche [m^2]",
+                  title=f"Wärmeübertragungsfläche Verdampfer Luftseitig", marker=None,
+                  save_path="Plots/A_evap.png")
 
-plot.plot_any(kind="time vs any",
-              x=data['t'], y=data['A_evap'],
-              xlabel="Zeit [s]", ylabel="Wärmeübertragungsfläche [m^2]",
-              title=f"Wärmeübertragungsfläche Verdampfer Luftseitig", marker=None,
-              save_path="Plots/A_evap.png")
+    plot.plot_any(kind="time vs any",
+                  x=data['t'], y=data['mean_s_ft'],
+                  xlabel="Zeit [s]", ylabel="Frostdicke [m]",
+                  title=f"Durchschnittliche Frostdicke", marker=None,
+                  save_path="Plots/mean_frost.png")
 
-plot.plot_any(kind="time vs any",
-              x=data['t'], y=data['mean_s_ft'],
-              xlabel="Zeit [s]", ylabel="Frostdicke [m]",
-              title=f"Durchschnittliche Frostdicke", marker=None,
-              save_path="Plots/mean_frost.png")
+    plot.plot_any(kind="time vs any",
+                  x=data['t'], y=data['m_dot_air'],
+                  xlabel="Zeit [s]", ylabel="Massenfluss [kg/s]",
+                  title=f"Gesamter Massenfluss der Luft", marker=None,
+                  save_path="Plots/m_dot_air.png")
 
-plot.plot_any(kind="time vs any",
-              x=data['t'], y=data['m_dot_air'],
-              xlabel="Zeit [s]", ylabel="Massenfluss [kg/s]",
-              title=f"Gesamter Massenfluss der Luft", marker=None,
-              save_path="Plots/m_dot_air.png")
+    plot.plot_any(kind="time vs any",
+                  x=data['t'], y=data['v_in_air'],
+                  xlabel="Zeit [s]", ylabel="Geschwindigkeit [m/s]",
+                  title=f"Geschwindigkeit der Luft am inlet", marker=None,
+                  save_path="Plots/v_in_air.png")
 
-plot.plot_any(kind="time vs any",
-              x=data['t'], y=data['v_in_air'],
-              xlabel="Zeit [s]", ylabel="Geschwindigkeit [m/s]",
-              title=f"Geschwindigkeit der Luft am inlet", marker=None,
-              save_path="Plots/v_in_air.png")
+    plot.plot_any(kind="time vs any",
+                  x=data['t'], y=data['T_out_air_mean'],
+                  xlabel="Zeit [s]", ylabel="Temperatur [°C]",
+                  title=f"Gemittelte Austrittstemperatur Luft", marker=None,
+                  save_path="Plots/T_out_air.png")
 
-plot.plot_any(kind="time vs any",
-              x=data['t'], y=data['T_out_air_mean'],
-              xlabel="Zeit [s]", ylabel="Temperatur [°C]",
-              title=f"Gemittelte Austrittstemperatur Luft", marker=None,
-              save_path="Plots/T_out_air.png")
+    plot.plot_any(kind="time vs any",
+                  x=data['t'], y=data['T_sat'],
+                  xlabel="Zeit [s]", ylabel="Temperatur [°C]",
+                  title=f"Verdampfungstemperatur im Verdampfer", marker=None,
+                  save_path="Plots/T_evaporation.png")
 
-plot.plot_any(kind="time vs any",
-              x=data['t'], y=data['T_sat'],
-              xlabel="Zeit [s]", ylabel="Temperatur [°C]",
-              title=f"Verdampfungstemperatur im Verdampfer", marker=None,
-              save_path="Plots/T_evaporation.png")
+    plot.plot_any(kind="time vs any",
+                  x=data['t'], y=data['T_out_ref'],
+                  xlabel="Zeit [s]", ylabel="Temperatur [°C]",
+                  title=f"Austrittstemperatur Kältemittel Verdampfer", marker=None,
+                  save_path="Plots/T_out_ref_evap.png")
 
-plot.plot_any(kind="time vs any",
-              x=data['t'], y=data['T_out_ref'],
-              xlabel="Zeit [s]", ylabel="Temperatur [°C]",
-              title=f"Austrittstemperatur Kältemittel Verdampfer", marker=None,
-              save_path="Plots/T_out_ref_evap.png")
+    plot.plot_any(kind="time vs any",
+                  x=data['t'], y=data['p_ref_evap'],
+                  xlabel="Zeit [s]", ylabel="Druck [Pa]",
+                  title=f"Druck des Kältemittels Verdampferseite", marker=None,
+                  save_path="Plots/P_ref_evap.png")
 
-plot.plot_any(kind="time vs any",
-              x=data['t'], y=data['p_ref_evap'],
-              xlabel="Zeit [s]", ylabel="Druck [Pa]",
-              title=f"Druck des Kältemittels Verdampferseite", marker=None,
-              save_path="Plots/P_ref_evap.png")
+    plot.plot_any(kind="time vs any",
+                  x=data['t'], y=data['superheating'],
+                  xlabel="Zeit [s]", ylabel="Temperatur [K]",
+                  title=f"Überhitzung", marker=None,
+                  save_path="Plots/superheating.png")
 
-plot.plot_any(kind="time vs any",
-              x=data['t'], y=data['superheating'],
-              xlabel="Zeit [s]", ylabel="Temperatur [K]",
-              title=f"Überhitzung", marker=None,
-              save_path="Plots/superheating.png")
+    plot.plot_any(kind="time vs any",
+                  x=data['t'], y=data['p_ref_cond'],
+                  xlabel="Zeit [s]", ylabel="Druck [Pa]",
+                  title=f"Druck des Kältemittels Kondenserseite", marker=None,
+                  save_path="Plots/P_ref_cond.png")
 
-plot.plot_any(kind="time vs any",
-              x=data['t'], y=data['p_ref_cond'],
-              xlabel="Zeit [s]", ylabel="Druck [Pa]",
-              title=f"Druck des Kältemittels Kondenserseite", marker=None,
-              save_path="Plots/P_ref_cond.png")
+    plot.plot_any(kind="time vs any",
+                  x=data['t'], y=data['T_out_water'],
+                  xlabel="Zeit [s]", ylabel="Temperatur [°C]",
+                  title=f"Austrittstemperatur Wasser", marker=None,
+                  save_path="Plots/T_out_water.png")
 
-plot.plot_any(kind="time vs any",
-              x=data['t'], y=data['T_out_water'],
-              xlabel="Zeit [s]", ylabel="Temperatur [°C]",
-              title=f"Austrittstemperatur Wasser", marker=None,
-              save_path="Plots/T_out_water.png")
+    plot.plot_any(kind="time vs any",
+                  x=data['t'], y=data['m_dot_ref'],
+                  xlabel="Zeit [s]", ylabel="Massenfluss [kg/s]",
+                  title=f"Massenfluss des Kältemittels", marker=None,
+                  save_path="Plots/m_dot_ref.png")
 
-plot.plot_any(kind="time vs any",
-              x=data['t'], y=data['m_dot_ref'],
-              xlabel="Zeit [s]", ylabel="Massenfluss [kg/s]",
-              title=f"Massenfluss des Kältemittels", marker=None,
-              save_path="Plots/m_dot_ref.png")
+    plot.plot_any(kind="time vs any",
+                  x=data['t'], y=data['valve_pos'],
+                  xlabel="Zeit [s]", ylabel="Ventilöffnung [%]",
+                  title=f"Öffnung des Expansionsventils", marker=None,
+                  save_path="Plots/valve_pos.png")
 
-plot.plot_any(kind="time vs any",
-              x=data['t'], y=data['valve_pos'],
-              xlabel="Zeit [s]", ylabel="Ventilöffnung [%]",
-              title=f"Öffnung des Expansionsventils", marker=None,
-              save_path="Plots/valve_pos.png")
+    plot.plot_any(kind="time vs any",
+                  x=data['t'], y=data['humidity'],
+                  xlabel="Zeit [s]", ylabel="Feuchtegehalt [kg/kg]",
+                  title=f"Feuchtgehalt entlang dem Luftstrom", marker=None,
+                  labels=["Seg 1","Seg 2","Seg 3","Seg 4","Seg 5"],
+                  save_path="Plots/humidity.png")
 
-plot.plot_any(kind="time vs any",
-              x=data['t'], y=data['humidity'],
-              xlabel="Zeit [s]", ylabel="Feuchtegehalt [kg/kg]",
-              title=f"Feuchtgehalt entlang dem Luftstrom", marker=None,
-              labels=["Seg 1","Seg 2","Seg 3","Seg 4","Seg 5"],
-              save_path="Plots/humidity.png")
+    plot.plot_mollier_hx_time(data["t"], data["humidity"], data["air_temp_l"],P=P, seg_idx=0,iso_Ts_C=[-30,-20,-10,0],T_bg_min=-30,T_bg_max=0,save_path="Plots/mollier_seg_0.png")
+    plot.plot_mollier_hx_time(data["t"], data["humidity"], data["air_temp_l"],P=P, seg_idx=1,iso_Ts_C=[-30,-20,-10,0],T_bg_min=-30,T_bg_max=0,save_path="Plots/mollier_seg_1.png")
 
-plot.plot_mollier_hx_time(data["t"], data["humidity"], data["air_temp_l"],P=P, seg_idx=0,iso_Ts_C=[-30,-20,-10,0],T_bg_min=-30,T_bg_max=0,save_path="Plots/mollier_seg_0.png")
-plot.plot_mollier_hx_time(data["t"], data["humidity"], data["air_temp_l"],P=P, seg_idx=1,iso_Ts_C=[-30,-20,-10,0],T_bg_min=-30,T_bg_max=0,save_path="Plots/mollier_seg_1.png")
-
-plot.plot_any(kind="time vs any",
-              x=data['t'], y=data['dt'],
-              xlabel="Zeit [s]", ylabel="Zeit [s]",
-              title=f"Zeitschritt der Simulation", marker=None,
-              save_path="Plots/time_step.png")
+    plot.plot_any(kind="time vs any",
+                  x=data['t'], y=data['dt'],
+                  xlabel="Zeit [s]", ylabel="Zeit [s]",
+                  title=f"Zeitschritt der Simulation", marker=None,
+                  save_path="Plots/time_step.png")

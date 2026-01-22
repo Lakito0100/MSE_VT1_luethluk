@@ -47,6 +47,7 @@ class GridShape:
     # Numerics
     t_end: float        # s end time
     dt: float           # s time step
+    print_output_every_x_it: int = 10
     store_grid_every_x_it: int = 10  # store every x iterations
 
     nx: int = 100
