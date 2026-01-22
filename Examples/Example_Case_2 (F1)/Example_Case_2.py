@@ -133,7 +133,7 @@ HP = HeatPump(
 
     #water
     T_in_water = T_in_water,
-    m_water = 0.5,
+    m_water = 10.0,
     c_water = 4200,
     rho_water = 997,
 
