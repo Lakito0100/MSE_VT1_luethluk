@@ -654,9 +654,11 @@ class Refrigerant:
         evap_exit = fmt_sh_sc(P_end, h_end[-1], fluid, kind="evap")
         cond_exit = fmt_sh_sc(P_cond_end, h_cond_end[-1], fluid, kind="cond")
 
+        valve_pos_current = self.valve_controller(t1,P_end,h_end[-1])
+
         print(
             f"HP(it={n_inner}, evap_out={evap_exit}, cond_out={cond_exit}, "
-            f"Q_evap={Q_evap:.2f} W, Q_cond={Q_cond:.2f} W, ct={ref_time:.3f} s)"
+            f"Q_evap={Q_evap:.1f} W, Q_cond={Q_cond:.1f} W, Valve={valve_pos_current:.1f} %, ct={ref_time:.3f} s)"
         )
 
         # ----------------------------------------------------------
