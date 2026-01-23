@@ -62,7 +62,7 @@ class Refrigerant:
         out = drho_dP_dH(
             self,
             fluid=self.fluid,
-            P_min=1e4, P_max=20e5, dP=1e4,
+            P_min=1e4, P_max=30e5, dP=1e4,
             H_min=2e5, H_max=1e6, dH=1e3,
             scheme="central",
             save_path=None,
@@ -142,10 +142,10 @@ class Refrigerant:
         return 5000.0
 
     def h_int_corr_cond(self):
-        return 10000.0
+        return 5000.0
 
     def h_int_corr_water(self):
-        return 10000.0
+        return 8000.0
 
     def valve_controller(self, t, P_suction=None, h_suction=None):
         """
@@ -170,13 +170,13 @@ class Refrigerant:
         # -----------------------------
         # controller settings
         # -----------------------------
-        SH_set = 10.0  # [K] target superheat
+        SH_set = 8.0  # [K] target superheat
         Kp = 0.25  # [%/K]
         Ki = 0.04  # [%/(K*s)]
         u_min = 0.0  # [%]
         u_max = 100.0  # [%]
         u0 = 30.0  # [%] bias / initial opening
-        T_sample = 0.1 # [s] Sample time for controller
+        T_sample = 1.0 # [s] Sample time for controller
 
         if t <= 60:
             return u0

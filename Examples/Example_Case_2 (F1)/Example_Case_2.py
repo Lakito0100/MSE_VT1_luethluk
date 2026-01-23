@@ -22,7 +22,7 @@ RH = 0.0
 v_a = 1.2
 
 #water
-T_in_water = 40.0
+T_in_water = 30.0
 N_cond = 30
 
 #refrigerant
@@ -31,12 +31,12 @@ rho_amb_in = 1.0 / HAPropsSI("Vha","T",T_a+273.15,"P",P,"R",RH)
 
 refrigerant = "R134a"
 #at evaportor
-x_evap = 0.45
+x_evap = 0.3
 p_ref_evap = PropsSI("P", "T", T_a + 273.15, "Q", 0, refrigerant)
 h_ref_evap = PropsSI("H", "T", T_a + 273.15, "Q", x_evap, refrigerant)
 
 #at condenser
-x_cond = 0.45
+x_cond = 0
 p_ref_cond = PropsSI("P", "T", T_in_water + 273.15, "Q", 0, refrigerant)
 h_ref_cond = PropsSI("H", "T", T_in_water + 273.15, "Q", x_cond, refrigerant)
 
@@ -50,7 +50,7 @@ geom = FinnTubedHX(
     fin_thickness = 0.0002,    # m
     fin_pitch_cc = 0.005,          # m
     d_tube_a = 0.012,          # m
-    tube_thickness = 0.0008,       # m
+    tube_thickness = 0.00042,       # m
     lambda_fin = 237.0,            # W/mK
     rho_solid = 2700.0,            # kg/m3
     c_solid = 900.0,               # J/kgK
@@ -133,7 +133,7 @@ HP = HeatPump(
 
     #water
     T_in_water = T_in_water,
-    m_water = 10.0,
+    m_water = 1.0,
     c_water = 4200,
     rho_water = 997,
 

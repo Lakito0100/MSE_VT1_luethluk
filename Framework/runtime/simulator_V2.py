@@ -439,7 +439,7 @@ class Simulator:
             time_remaining_est = time_iteration * (gs.t_end - t) / gs.dt
 
             print(f"Cycle time for time step {it}: {time_iteration:.1f} s\n"
-                  f"\033[94mTime remaining: {time_remaining_est / 60.0:.1f} min\033[0m")
+                  f"\033[94mApproximate remaining time: {time_remaining_est / 60.0:.1f} min\033[0m")
 
             t += dt_step_n
             print(

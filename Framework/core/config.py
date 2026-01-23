@@ -100,5 +100,5 @@ class HeatPump:
     W_comp: float = 0.001
 
     def RPM(self, t):
-        """Return compressor RPM ramped from zero to 1500."""
-        return min(2000, 80 * t)
+        """Return compressor RPM ramped from zero to 1000."""
+        return min(1000, 80 * t)
