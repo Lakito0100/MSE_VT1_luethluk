@@ -393,7 +393,7 @@ class Simulator:
                 input_cfg.T_a = dynamic_models.T_a_profile(t, 5.0, 0.0, 30*60.0, 60.0)
 
             if gs.change_humidity:
-                input_cfg.w_amb = dynamic_models.w_amb_profile(t,input_cfg.T_a,input_cfg.p_a,0.0,0.8,4*60.0,20.0)
+                input_cfg.w_amb = dynamic_models.w_amb_profile(t,input_cfg.T_a,input_cfg.p_a,0.0,0.8,5*60.0,20.0)
 
             #if t >= 4*60.0:
             #    gs.cal_frost = True
@@ -418,7 +418,7 @@ class Simulator:
                 # Adaptiv time step:
                 # parameters
                 #if max_rh_wall_step  > 0.8 and not any_frost_condition_step:
-                if 4*60.0 - 10 <= t <= 4*60.0 + 10:
+                if 5*60.0 - 10 <= t <= 5*60.0 + 10:
                     gs.dt = max(dt_start, gs.dt * 0.5)
                 else:
                     it_target = 20
