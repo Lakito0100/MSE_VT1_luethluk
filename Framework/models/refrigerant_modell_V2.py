@@ -53,7 +53,7 @@ class Refrigerant:
         self._init_rho_tables()
 
         # --- Valve PI controller state ---
-        self._valve_pos = None  # last valve position [%]
+        self.valve_pos = None  # last valve position [%]
         self._valve_I = 0.0  # integrator state [K*s]
         self._valve_last_t = None  # last time [s]
         self._valve_SH_filt = None  # optional filtered SH [K]
@@ -180,28 +180,29 @@ class Refrigerant:
         T_sample = 0.2 # [s] Sample time for controller
 
         if t <= 60:
-            return u0
+            self.valve_pos = u0
+            return float(self.valve_pos)
 
         # -----------------------------
         # Init state on first call
         # -----------------------------
-        if self._valve_pos is None:
-            self._valve_pos = float(np.clip(u0, u_min, u_max))
+        if self.valve_pos is None:
+            self.valve_pos = float(np.clip(u0, u_min, u_max))
         if self._valve_last_t is None:
             self._valve_last_t = float(t)
             self._valve_I = 0.0
-            return self._valve_pos
+            return self.valve_pos
 
         # time step (avoid issues if solver calls multiple times at same t)
         t_now = float(t)
         dt = t_now - float(self._valve_last_t)
         if dt < T_sample:
-            return float(self._valve_pos)
+            return float(self.valve_pos)
 
         # if measurement not available -> hold last valve position
         if P_suction is None or h_suction is None:
             self._valve_last_t = t_now
-            return float(self._valve_pos)
+            return float(self.valve_pos)
 
         P_suction = float(P_suction)
         h_suction = float(h_suction)
@@ -252,7 +253,7 @@ class Refrigerant:
             u_unclamped = u0 + Kp * e + Ki * I_new
             u = float(np.clip(u_unclamped, u_min, u_max))
 
-        u_prev = float(self._valve_pos)
+        u_prev = float(self.valve_pos)
         u = float(np.clip(u, u_prev - du_max, u_prev + du_max))
 
         # If rate-limited and error would push further -> freeze integrator
@@ -261,10 +262,10 @@ class Refrigerant:
 
         # store state
         self._valve_I = float(I_new)
-        self._valve_pos = float(u)
-        self._valve_last_t = float(self._valve_last_t + T_sample)
+        self.valve_pos = float(u)
+        self._valve_last_t = t_now
 
-        return float(self._valve_pos)
+        return float(self.valve_pos)
 
     def valve_model(self, pi, hi, po, VPos):
         dp = pi-po
@@ -685,7 +686,7 @@ class Refrigerant:
         evap_exit = fmt_sh_sc(P_end, h_end[-1], fluid, kind="evap")
         cond_exit = fmt_sh_sc(P_cond_end, h_cond_end[-1], fluid, kind="cond")
 
-        valve_pos_current = self.valve_controller(t1,P_end,h_end[-1])
+        valve_pos_current = self.valve_pos
 
         print(
             f"HP(it={n_inner}, evap_out={evap_exit}, cond_out={cond_exit}, "
@@ -728,7 +729,7 @@ class Refrigerant:
     def reset_integrator(self):
         self._bdf = None
 
-        self._valve_pos = None
+        self.valve_pos = None
         self._valve_I = 0.0
         self._valve_last_t = None
         self._valve_SH_filt = None

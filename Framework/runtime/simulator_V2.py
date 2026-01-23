@@ -319,7 +319,9 @@ class Simulator:
             h3_cond_out = self.HP.h_ref_cond[-1]
 
             p4_valve_out = p_ref_evap
-            VPos = self.refrigerant.valve_controller(t, p1_suction, h1_suction)
+            VPos = self.refrigerant.valve_pos
+            if VPos is None:
+                VPos = self.refrigerant.valve_controller(t=t, P_suction=p1_suction, h_suction=h1_suction)
             m_valve, h4_valve_out = self.refrigerant.valve_model(pi=p3_cond_out, hi=h3_cond_out, po=p4_valve_out, VPos=VPos)
 
             cycle_ph = [
