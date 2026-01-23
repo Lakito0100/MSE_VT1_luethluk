@@ -12,7 +12,7 @@ from Framework.visualisation import plot
 from Framework.runtime.recorder import ResultRecorder
 
 sim_run = True
-read_data = True
+read_data = False
 plots = False
 
 #air
@@ -22,7 +22,7 @@ RH = 0.0
 v_a = 1.2
 
 #water
-T_in_water = 40.0
+T_in_water = 30.0
 N_cond = 30
 
 #refrigerant
@@ -31,12 +31,12 @@ rho_amb_in = 1.0 / HAPropsSI("Vha","T",T_a+273.15,"P",P,"R",RH)
 
 refrigerant = "R134a"
 #at evaportor
-x_evap = 0.4
+x_evap = 0.5
 p_ref_evap = PropsSI("P", "T", T_a + 273.15, "Q", 0, refrigerant)
 h_ref_evap = PropsSI("H", "T", T_a + 273.15, "Q", x_evap, refrigerant)
 
 #at condenser
-x_cond = 0.4
+x_cond = 0
 p_ref_cond = PropsSI("P", "T", T_in_water + 273.15, "Q", 0, refrigerant)
 h_ref_cond = PropsSI("H", "T", T_in_water + 273.15, "Q", x_cond, refrigerant)
 
@@ -50,7 +50,7 @@ geom = FinnTubedHX(
     fin_thickness = 0.0002,    # m
     fin_pitch_cc = 0.005,          # m
     d_tube_a = 0.012,          # m
-    tube_thickness = 0.0008,       # m
+    tube_thickness = 0.00042,       # m
     lambda_fin = 237.0,            # W/mK
     rho_solid = 2700.0,            # kg/m3
     c_solid = 900.0,               # J/kgK
@@ -58,7 +58,7 @@ geom = FinnTubedHX(
 )
 
 gs = GridShape(
-    t_end = 4*60.0,      # s endtime
+    t_end = 60*60.0,      # s endtime
     dt = 0.1,           # s time step
     print_output_every_x_it = 20,
     store_grid_every_x_it = 100,
@@ -133,7 +133,7 @@ HP = HeatPump(
 
     #water
     T_in_water = T_in_water,
-    m_water = 10.0,
+    m_water = 1.0,
     c_water = 4200,
     rho_water = 997,
 
@@ -142,15 +142,15 @@ HP = HeatPump(
 )
 #plot.plot_finned_tube_side(geom)
 
-V_evap = (geom.n_fin * geom.l_tube() * ((geom.d_rohr_i())**2) / 4) * geom.n_seg_l * geom.n_seg_r * geom.stacks
-rho_evap = PropsSI("D", "T", T_a + 273.15, "Q", x_evap, refrigerant)
-print(f"rho_evap = {rho_evap:.3f} kg/m^3, V_evap = {V_evap*1000:.3f} dm^3, Mass_evap = {rho_evap * V_evap:.3f} kg")
-
-print(f"Enthalpie in evaporator at start: {h_ref_evap:.0f} J")
-print(f"Enthalpie in condenser at start: {h_ref_cond:.0f} J")
-
-print(f"Surface area Evaporator = {geom.A_one_segment()*geom.n_seg_r*geom.n_seg_l*geom.stacks:.2f} m2")
-print(f"Surface area Condenser = {HP.A_plate:.2f} m2")
+# V_evap = (geom.n_fin * geom.l_tube() * ((geom.d_rohr_i())**2) / 4) * geom.n_seg_l * geom.n_seg_r * geom.stacks
+# rho_evap = PropsSI("D", "T", T_a + 273.15, "Q", x_evap, refrigerant)
+# print(f"rho_evap = {rho_evap:.3f} kg/m^3, V_evap = {V_evap*1000:.3f} dm^3, Mass_evap = {rho_evap * V_evap:.3f} kg")
+#
+# print(f"Enthalpie in evaporator at start: {h_ref_evap:.0f} J")
+# print(f"Enthalpie in condenser at start: {h_ref_cond:.0f} J")
+#
+# print(f"Surface area Evaporator = {geom.A_one_segment()*geom.n_seg_r*geom.n_seg_l*geom.stacks:.2f} m2")
+# print(f"Surface area Condenser = {HP.A_plate:.2f} m2")
 
 
 result_file = "results_case_2"

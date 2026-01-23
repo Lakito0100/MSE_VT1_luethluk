@@ -62,7 +62,7 @@ class Refrigerant:
         out = drho_dP_dH(
             self,
             fluid=self.fluid,
-            P_min=1e4, P_max=20e5, dP=1e4,
+            P_min=1e4, P_max=30e5, dP=1e4,
             H_min=2e5, H_max=1e6, dH=1e3,
             scheme="central",
             save_path=None,
@@ -142,10 +142,10 @@ class Refrigerant:
         return 5000.0
 
     def h_int_corr_cond(self):
-        return 10000.0
+        return 5000.0
 
     def h_int_corr_water(self):
-        return 10000.0
+        return 8000.0
 
     def valve_controller(self, t, P_suction=None, h_suction=None):
         """
@@ -170,13 +170,14 @@ class Refrigerant:
         # -----------------------------
         # controller settings
         # -----------------------------
-        SH_set = 10.0  # [K] target superheat
-        Kp = 0.25  # [%/K]
-        Ki = 0.04  # [%/(K*s)]
+        SH_set = 8.0  # [K] target superheat
+        Kp = 0.2  # [%/K]
+        Ki = 0.005  # [%/(K*s)]
         u_min = 0.0  # [%]
         u_max = 100.0  # [%]
-        u0 = 50.0  # [%] bias / initial opening
-        T_sample = 0.1 # [s] Sample time for controller
+        u0 = 30.0  # [%] bias / initial opening
+        du_max = 0.4 # [%] per update
+        T_sample = 0.2 # [s] Sample time for controller
 
         if t <= 60:
             return u0
@@ -219,13 +220,28 @@ class Refrigerant:
 
         SH = T_suction - T_sat  # [K] can be negative
 
+        dt_eff = T_sample
+
+        tau = 2.0  # [s] Filter Time constant
+        alpha = dt_eff / (tau + dt_eff)
+
+        if getattr(self, "_SH_filt", None) is None:
+            self._SH_filt = SH
+
+        self._SH_filt = (1 - alpha) * self._SH_filt + alpha * SH
+        SH_used = self._SH_filt
+
         # -----------------------------
         # PI control law with simple anti-windup
         # -----------------------------
-        e = SH - SH_set  # positive => SH too high => open valve more
+        e = SH_used - SH_set  # positive => SH too high => open valve more
+
+        if abs(e) < 0.1:  # [K] Deadband
+            e = 0.0
 
         I_old = float(self._valve_I)
-        I_new = I_old + e * dt
+
+        I_new = I_old + e * dt_eff
 
         u_unclamped = u0 + Kp * e + Ki * I_new
         u = float(np.clip(u_unclamped, u_min, u_max))
@@ -236,10 +252,17 @@ class Refrigerant:
             u_unclamped = u0 + Kp * e + Ki * I_new
             u = float(np.clip(u_unclamped, u_min, u_max))
 
+        u_prev = float(self._valve_pos)
+        u = float(np.clip(u, u_prev - du_max, u_prev + du_max))
+
+        # If rate-limited and error would push further -> freeze integrator
+        if (u == u_prev + du_max and e > 0.0) or (u == u_prev - du_max and e < 0.0):
+            I_new = I_old
+
         # store state
         self._valve_I = float(I_new)
         self._valve_pos = float(u)
-        self._valve_last_t = t_now
+        self._valve_last_t = float(self._valve_last_t + T_sample)
 
         return float(self._valve_pos)
 
