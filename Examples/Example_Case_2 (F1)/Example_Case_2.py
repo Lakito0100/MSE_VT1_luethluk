@@ -20,15 +20,14 @@ T_a = 5.0
 P = 101325
 RH = 0.0
 v_a = 1.2
+w_amb_in = HAPropsSI('W','T',T_a+273.15,'P',P,'R', RH)
+rho_amb_in = 1.0 / HAPropsSI("Vha","T",T_a+273.15,"P",P,"R",RH)
 
 #water
 T_in_water = 30.0
 N_cond = 30
 
 #refrigerant
-w_amb_in = HAPropsSI('W','T',T_a+273.15,'P',P,'R', RH)
-rho_amb_in = 1.0 / HAPropsSI("Vha","T",T_a+273.15,"P",P,"R",RH)
-
 refrigerant = "R134a"
 #at evaportor
 x_evap = 0.5
@@ -138,7 +137,7 @@ HP = HeatPump(
     rho_water = 997,
 
     #vent controller
-    use_controller = False
+    use_controller = True
 )
 #plot.plot_finned_tube_side(geom)
 

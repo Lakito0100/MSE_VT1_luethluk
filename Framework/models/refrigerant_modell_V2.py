@@ -171,8 +171,8 @@ class Refrigerant:
         # controller settings
         # -----------------------------
         SH_set = 8.0  # [K] target superheat
-        Kp = 0.25  # [%/K]
-        Ki = 0.04  # [%/(K*s)]
+        Kp = 0.5#0.20  # [%/K]
+        Ki = 0.0025#0.005  # [%/(K*s)]
         u_min = 0.0  # [%]
         u_max = 100.0  # [%]
         u0 = 20.0  # [%] bias / initial opening
@@ -214,13 +214,12 @@ class Refrigerant:
         # T_suction [K]
         T_suction = float(self.T_from_PH_vec(P_suction, np.array([h_suction], dtype=float))[0])
 
-
         # T_sat [K]
         T_sat = float(self._T_sat_interp(P_suction))
 
         SH = T_suction - T_sat  # [K] can be negative
 
-        dt_eff = T_sample
+        dt_eff = dt
 
         tau = 2.0  # [s] Filter Time constant
         alpha = dt_eff / (tau + dt_eff)
@@ -230,14 +229,15 @@ class Refrigerant:
 
         self._SH_filt = (1 - alpha) * self._SH_filt + alpha * SH
         SH_used = self._SH_filt
+        print(f"SH_used: {SH_used}")
 
         # -----------------------------
         # PI control law with simple anti-windup
         # -----------------------------
-        e = SH - SH_set  # positive => SH too high => open valve more
-
-        if abs(e) < 0.1:  # [K] Deadband
-            e = 0.0
+        e = SH_used - SH_set  # positive => SH too high => open valve more
+        print(f"Error in controller: {e}")
+        #if abs(e) < 0.1:  # [K] Deadband
+        #    e = 0.0
 
         I_old = float(self._valve_I)
 
