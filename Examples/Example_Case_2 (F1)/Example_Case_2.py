@@ -58,7 +58,7 @@ geom = FinnTubedHX(
 )
 
 gs = GridShape(
-    t_end = 60*60.0,      # s endtime
+    t_end = 5*60.0,      # s endtime
     dt = 0.1,           # s time step
     print_output_every_x_it = 20,
     store_grid_every_x_it = 100,
@@ -138,7 +138,7 @@ HP = HeatPump(
     rho_water = 997,
 
     #vent controller
-    use_controller = True
+    use_controller = False
 )
 #plot.plot_finned_tube_side(geom)
 

@@ -424,8 +424,8 @@ class Simulator:
                     gs.dt = max(dt_start, gs.dt * 0.5)
                 else:
                     it_target = 20
-                    k = 0.5  # aggressiveness
-                    fac_min, fac_max = 0.5, 2.0  # limit per outer step
+                    k = 0.2  # aggressiveness
+                    fac_min, fac_max = 0.5, 1.5  # limit per outer step
                     dt_min, dt_max = 0.01, 2.0  # absolute bounds
 
                     fac = (it_target / n_inner) ** k

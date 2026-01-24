@@ -165,19 +165,18 @@ class Refrigerant:
         # -----------------------------
         HP = self.HP
         if not HP.use_controller:
-            return 50.0
+            return 20.0
 
         # -----------------------------
         # controller settings
         # -----------------------------
         SH_set = 8.0  # [K] target superheat
-        Kp = 0.2  # [%/K]
-        Ki = 0.005  # [%/(K*s)]
+        Kp = 0.25  # [%/K]
+        Ki = 0.04  # [%/(K*s)]
         u_min = 0.0  # [%]
         u_max = 100.0  # [%]
-        u0 = 30.0  # [%] bias / initial opening
-        du_max = 0.4 # [%] per update
-        T_sample = 0.2 # [s] Sample time for controller
+        u0 = 20.0  # [%] bias / initial opening
+        T_sample = 0.0 # [s] Sample time for controller
 
         if t <= 60:
             self.valve_pos = u0
@@ -235,14 +234,14 @@ class Refrigerant:
         # -----------------------------
         # PI control law with simple anti-windup
         # -----------------------------
-        e = SH_used - SH_set  # positive => SH too high => open valve more
+        e = SH - SH_set  # positive => SH too high => open valve more
 
         if abs(e) < 0.1:  # [K] Deadband
             e = 0.0
 
         I_old = float(self._valve_I)
 
-        I_new = I_old + e * dt_eff
+        I_new = I_old + e * dt
 
         u_unclamped = u0 + Kp * e + Ki * I_new
         u = float(np.clip(u_unclamped, u_min, u_max))
@@ -252,13 +251,6 @@ class Refrigerant:
             I_new = I_old
             u_unclamped = u0 + Kp * e + Ki * I_new
             u = float(np.clip(u_unclamped, u_min, u_max))
-
-        u_prev = float(self.valve_pos)
-        u = float(np.clip(u, u_prev - du_max, u_prev + du_max))
-
-        # If rate-limited and error would push further -> freeze integrator
-        if (u == u_prev + du_max and e > 0.0) or (u == u_prev - du_max and e < 0.0):
-            I_new = I_old
 
         # store state
         self._valve_I = float(I_new)
@@ -516,7 +508,7 @@ class Refrigerant:
             T_water = y[2+2*N + 2*N_condenser:2+2*N + 3*N_condenser]
 
             m_comp, h_out_comp = self.compressor_model(P, h[-1], P_cond, HP.RPM(t))
-            m_valve, h_out_valve = self.valve_model(P_cond, h_cond[-1], P, self.valve_controller(t, P, h[-1]))
+            m_valve, h_out_valve = self.valve_model(P_cond, h_cond[-1], P, VPos_hold)
 
             # --- Evaporator: vectorised ---
             rho, rhoP, rhoh = self.rho_and_derivs_vec(P, h)
@@ -584,6 +576,13 @@ class Refrigerant:
                 or self._bdf_dim != y0.size
                 or abs(float(self._bdf.t) - t0) > 1e-12
         )
+
+        # call the controller
+        P_suction_0 = float(y0[0])
+        h_suction_0 = float(y0[1 + N - 1])
+
+        VPos_hold = float(self.valve_controller(t0, P_suction=P_suction_0, h_suction=h_suction_0))
+        self.valve_pos = VPos_hold
 
         # Optional: restart if cfg_grid was changed externally and no longer matches solver.y
         if (not need_restart) and (np.max(np.abs(self._bdf.y - y0)) > 1e-6):
