@@ -20,15 +20,14 @@ T_a = 5.0
 P = 101325
 RH = 0.0
 v_a = 1.2
+w_amb_in = HAPropsSI('W','T',T_a+273.15,'P',P,'R', RH)
+rho_amb_in = 1.0 / HAPropsSI("Vha","T",T_a+273.15,"P",P,"R",RH)
 
 #water
 T_in_water = 30.0
 N_cond = 30
 
 #refrigerant
-w_amb_in = HAPropsSI('W','T',T_a+273.15,'P',P,'R', RH)
-rho_amb_in = 1.0 / HAPropsSI("Vha","T",T_a+273.15,"P",P,"R",RH)
-
 refrigerant = "R134a"
 #at evaportor
 x_evap = 0.5
@@ -58,7 +57,7 @@ geom = FinnTubedHX(
 )
 
 gs = GridShape(
-    t_end = 60*60.0,      # s endtime
+    t_end = 10*60.0,      # s endtime
     dt = 0.1,           # s time step
     print_output_every_x_it = 20,
     store_grid_every_x_it = 100,

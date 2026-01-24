@@ -319,7 +319,9 @@ class Simulator:
             h3_cond_out = self.HP.h_ref_cond[-1]
 
             p4_valve_out = p_ref_evap
-            VPos = self.refrigerant.valve_controller(t, p1_suction, h1_suction)
+            VPos = self.refrigerant.valve_pos
+            if VPos is None:
+                VPos = self.refrigerant.valve_controller(t=t, P_suction=p1_suction, h_suction=h1_suction)
             m_valve, h4_valve_out = self.refrigerant.valve_model(pi=p3_cond_out, hi=h3_cond_out, po=p4_valve_out, VPos=VPos)
 
             cycle_ph = [
@@ -422,9 +424,9 @@ class Simulator:
                     gs.dt = max(dt_start, gs.dt * 0.5)
                 else:
                     it_target = 20
-                    k = 0.5  # aggressiveness
-                    fac_min, fac_max = 0.5, 2.0  # limit per outer step
-                    dt_min, dt_max = 0.01, 2.0  # absolute bounds
+                    k = 0.2  # aggressiveness
+                    fac_min, fac_max = 0.5, 1.5  # limit per outer step
+                    dt_min, dt_max = 0.01, 0.5  # absolute bounds
 
                     fac = (it_target / n_inner) ** k
                     fac = max(fac_min, min(fac_max, fac))
