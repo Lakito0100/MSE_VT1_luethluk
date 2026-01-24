@@ -171,11 +171,12 @@ class Refrigerant:
         # controller settings
         # -----------------------------
         SH_set = 8.0  # [K] target superheat
-        Kp = 0.5#0.20  # [%/K]
-        Ki = 0.0025#0.005  # [%/(K*s)]
+        Kp = 0.3#0.5  # [%/K]
+        Ki = 0.015#0.01  # [%/(K*s)]
         u_min = 0.0  # [%]
         u_max = 100.0  # [%]
         u0 = 20.0  # [%] bias / initial opening
+        du_max_per_s = 1.0 # [%/s]
         T_sample = 0.0 # [s] Sample time for controller
 
         if t <= 60:
@@ -220,6 +221,7 @@ class Refrigerant:
         SH = T_suction - T_sat  # [K] can be negative
 
         dt_eff = dt
+        du_max = du_max_per_s * dt
 
         tau = 2.0  # [s] Filter Time constant
         alpha = dt_eff / (tau + dt_eff)
@@ -229,13 +231,13 @@ class Refrigerant:
 
         self._SH_filt = (1 - alpha) * self._SH_filt + alpha * SH
         SH_used = self._SH_filt
-        print(f"SH_used: {SH_used}")
+        #print(f"SH_used: {SH_used}")
 
         # -----------------------------
         # PI control law with simple anti-windup
         # -----------------------------
         e = SH_used - SH_set  # positive => SH too high => open valve more
-        print(f"Error in controller: {e}")
+        #print(f"Error in controller: {e}")
         #if abs(e) < 0.1:  # [K] Deadband
         #    e = 0.0
 
@@ -251,6 +253,16 @@ class Refrigerant:
             I_new = I_old
             u_unclamped = u0 + Kp * e + Ki * I_new
             u = float(np.clip(u_unclamped, u_min, u_max))
+
+        u = float(np.clip(u, self.valve_pos - du_max, self.valve_pos + du_max))
+
+        limited_by_rate = abs(u - u_unclamped) > 1e-9
+
+        if limited_by_rate:
+            I_new = I_old
+            u_unclamped = u0 + Kp * e + Ki * I_new
+            u = float(np.clip(u_unclamped, u_min, u_max))
+            u = float(np.clip(u, self.valve_pos - du_max, self.valve_pos + du_max))
 
         # store state
         self._valve_I = float(I_new)

@@ -426,7 +426,7 @@ class Simulator:
                     it_target = 20
                     k = 0.2  # aggressiveness
                     fac_min, fac_max = 0.5, 1.5  # limit per outer step
-                    dt_min, dt_max = 0.01, 0.2  # absolute bounds
+                    dt_min, dt_max = 0.01, 0.5  # absolute bounds
 
                     fac = (it_target / n_inner) ** k
                     fac = max(fac_min, min(fac_max, fac))

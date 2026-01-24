@@ -57,7 +57,7 @@ geom = FinnTubedHX(
 )
 
 gs = GridShape(
-    t_end = 5*60.0,      # s endtime
+    t_end = 10*60.0,      # s endtime
     dt = 0.1,           # s time step
     print_output_every_x_it = 20,
     store_grid_every_x_it = 100,
