@@ -101,11 +101,11 @@ def Ts_of_s(s: float, geom: Flatplate, air: AirProperty, op: OpPoint, hp: Hermes
 if __name__ == "__main__":
 
     # Randbedingungen
-    T_a = 2.0      # °C Lufttemperatur
-    T_w = -8.0      # °C Wandtemperatur
+    T_a = 0.0      # °C Lufttemperatur
+    T_w = -8.75      # °C Wandtemperatur
     RH  = 0.8       # Relative Luftfeuchtigkeit
-    u_a = 1.2       # m/s
-    p = 103500      # Pa
+    u_a = 1.45       # m/s
+    p = 101325      # Pa
 
     # Feuchte-Luft
     w_w = HAPropsSI("W", "T", T_w+273.15, "P", p, "R", 1.0)
