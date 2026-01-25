@@ -164,20 +164,23 @@ class Refrigerant:
         # Enable condition
         # -----------------------------
         HP = self.HP
-        if not HP.use_controller:
-            return 20.0
+
 
         # -----------------------------
         # controller settings
         # -----------------------------
         SH_set = 8.0  # [K] target superheat
-        Kp = 0.3#0.5  # [%/K]
-        Ki = 0.015#0.01  # [%/(K*s)]
+        Kp = 0.1  # [%/K]
+        Ki = 0.005  # [%/(K*s)]
         u_min = 0.0  # [%]
         u_max = 100.0  # [%]
         u0 = 20.0  # [%] bias / initial opening
         du_max_per_s = 1.0 # [%/s]
-        T_sample = 0.0 # [s] Sample time for controller
+        T_sample = 0.2 # [s] Sample time for controller
+
+        if not HP.use_controller:
+            self.valve_pos = u0
+            return u0
 
         if t <= 60:
             self.valve_pos = u0
@@ -486,7 +489,7 @@ class Refrigerant:
         # Vectorising
         # ----------------------------------------------------------
 
-        # Verdampfer-Konstanten:
+        # Evaporator constants:
         ixp = self._path_ix
         iyp = self._path_iy
 
@@ -496,7 +499,7 @@ class Refrigerant:
         den_wall = gp.rho_wall * gp.c_wall * gp.V_wall
         h_int_evap = float(self.h_int_corr())
 
-        # Kondensator-Konstanten:
+        # Condenser constants:
         V_plate = HP.n_plates * HP.t_plate * HP.length_cond * HP.height_cond
         M_plate = V_plate * HP.rho_plate
         V_ref = HP.A_flow_cond * HP.length_cond
@@ -520,7 +523,7 @@ class Refrigerant:
             T_water = y[2+2*N + 2*N_condenser:2+2*N + 3*N_condenser]
 
             m_comp, h_out_comp = self.compressor_model(P, h[-1], P_cond, HP.RPM(t))
-            m_valve, h_out_valve = self.valve_model(P_cond, h_cond[-1], P, VPos_hold)
+            m_valve, h_out_valve = self.valve_model(P_cond, h_cond[-1], P, self.valve_controller(t, P_suction=P, h_suction=h[-1]))
 
             # --- Evaporator: vectorised ---
             rho, rhoP, rhoh = self.rho_and_derivs_vec(P, h)
@@ -593,8 +596,8 @@ class Refrigerant:
         P_suction_0 = float(y0[0])
         h_suction_0 = float(y0[1 + N - 1])
 
-        VPos_hold = float(self.valve_controller(t0, P_suction=P_suction_0, h_suction=h_suction_0))
-        self.valve_pos = VPos_hold
+        #VPos_hold = float(self.valve_controller(t0, P_suction=P_suction_0, h_suction=h_suction_0))
+        #self.valve_pos = VPos_hold
 
         # Optional: restart if cfg_grid was changed externally and no longer matches solver.y
         if (not need_restart) and (np.max(np.abs(self._bdf.y - y0)) > 1e-6):

@@ -24,7 +24,7 @@ class Simulator:
         self.rec = ResultRecorder(fields=fields, stream_path=f"{stream_path}.jsonl")
 
         A_flow = (((geom.d_tube_a/2)-geom.tube_thickness)**2) * np.pi
-        L = geom.l_tube()
+        L = geom.l_tube()*geom.n_fin
         A_inner = (geom.d_tube_a-2*geom.tube_thickness)*np.pi*L
         V_wall = (((geom.d_tube_a/2)**2)*np.pi - A_flow)*L
 
@@ -392,7 +392,7 @@ class Simulator:
             # Dynamic models
 
             if gs.change_temperature:
-                input_cfg.T_a = dynamic_models.T_a_profile(t, 5.0, 0.0, 30*60.0, 60.0)
+                input_cfg.T_a = dynamic_models.T_a_profile(t, 0.0, -5.0, 30*60.0, 60.0)
 
             if gs.change_humidity:
                 input_cfg.w_amb = dynamic_models.w_amb_profile(t,input_cfg.T_a,input_cfg.p_a,0.0,0.8,5*60.0,20.0)
