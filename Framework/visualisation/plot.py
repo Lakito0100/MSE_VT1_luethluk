@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle
 import numpy as np
 from CoolProp.CoolProp import PropsSI
+import matplotlib.patheffects as pe
 
 def extract_segment_timeseries_from_snapshots(grid_snapshots, field, ix, iy):
     """
@@ -669,6 +670,30 @@ def plot_logph_cycles(
               cycle_ph[i] = [[p1,h1],[p2,h2],[p3,h3],[p4,h4]] with p[Pa], h[J/kg]
     """
 
+    def _label_angle(ax, x, y, i, clamp=80):
+        """
+        Winkel der Kurve in Bildschirmkoordinaten, normalisiert auf [-90, 90]
+        und optional auf +/- clamp begrenzt.
+        """
+        i0 = max(i - 1, 0)
+        i1 = min(i + 1, len(x) - 1)
+
+        p0 = ax.transData.transform((x[i0], y[i0]))
+        p1 = ax.transData.transform((x[i1], y[i1]))
+
+        ang = float(np.degrees(np.arctan2(p1[1] - p0[1], p1[0] - p0[0])))
+
+        ang = (ang + 180.0) % 360.0 - 180.0  # -> [-180, 180]
+        if ang > 90.0:
+            ang -= 180.0
+        elif ang < -90.0:
+            ang += 180.0
+
+        if clamp is not None:
+            ang = max(-clamp, min(clamp, ang))
+
+        return ang
+
     t = np.asarray(t, dtype=float).ravel()
 
     arr = np.asarray(cycle_ph, dtype=object)
@@ -724,11 +749,14 @@ def plot_logph_cycles(
         figsize = (11, 7)  # larger default without changing call sites
     fig, ax = plt.subplots(figsize=figsize)
 
+    iso_c = "0.0"
+    dome_c = iso_c
+
     # Saturation dome
     if plot_dome:
         hL, hV, p = _sat_dome_ph(ref)
-        ax.plot(hL/1000.0, p/1e5)
-        ax.plot(hV/1000.0, p/1e5)
+        ax.plot(hL/1000.0, p/1e5,color=dome_c,linewidth=1.2)
+        ax.plot(hV/1000.0, p/1e5,color=dome_c,linewidth=1.2)
 
     # Isotherms
     if isotherms:
@@ -756,32 +784,124 @@ def plot_logph_cycles(
             Ts_C = list(iso_Ts_C)
 
         iso_lines = _compute_isotherms_ph(ref, pmin_pa, pmax_pa, Ts_C, nP=90)
-        for (T_C, h_vap, p_vap, h_liq, p_liq) in iso_lines:
-            if h_vap is not None:
-                ax.plot(h_vap/1000.0, p_vap/1e5, linestyle=iso_style, linewidth=iso_lw, alpha=iso_alpha)
-                if iso_labels:
-                    ax.annotate(f"{T_C:.0f}°C", (h_vap[-1]/1000.0, p_vap[-1]/1e5),
-                                textcoords="offset points", xytext=(4, 2))
-            if h_liq is not None:
-                ax.plot(h_liq/1000.0, p_liq/1e5, linestyle=iso_style, linewidth=iso_lw, alpha=iso_alpha)
+        # --- Label-Position als fester Druck in der log-Skala (0..1) ---
+        iso_label_pfrac = 0.05  # 0.75 => eher oben; 0.65..0.85 je nach Geschmack
+        iso_label_every = 2  # z.B. 2 => nur jede zweite Isotherme beschriften
+
+        # Optional: leicht lesbarer Label-Hintergrund
+        label_bbox = dict(boxstyle="round,pad=0.15", facecolor="white", edgecolor="none", alpha=0.6)
+
+        # Ziel-Druck (in Pa) entlang log(p) zwischen pmin_pa und pmax_pa
+        p_label_pa = 10.0 ** (
+                np.log10(pmin_pa) + iso_label_pfrac * (np.log10(pmax_pa) - np.log10(pmin_pa))
+        )
+
+        arrow_kw = dict(arrowstyle="-", lw=0.8, color=iso_c, alpha=0.9)
+        text_pe = [pe.withStroke(linewidth=3, foreground="white")]  # weißer Rand um Text
+
+        axis_fontsize = 14
+        label_fontsize = 11
+        label_weight = "normal"
+        label_color = "black"
+
+        for j, (T_C, h_vap, p_vap, h_liq, p_liq) in enumerate(iso_lines):
+
+            # Stagger gegen Überlappung (Offset in Punkten)
+            dy = 9 + (j % 4) * 9  # 2, 9, 16, 23 pt
+            dxR, dxL = -4, -4
+
+            if h_vap is not None and p_vap is not None:
+                ax.plot(h_vap / 1000.0, p_vap / 1e5,
+                        color=iso_c, linestyle=iso_style, linewidth=iso_lw, alpha=iso_alpha)
+
+                if iso_labels and (j % iso_label_every == 0) and len(h_vap) > 0:
+                    pv = np.asarray(p_vap, dtype=float)
+                    hv = np.asarray(h_vap, dtype=float)
+                    m = np.isfinite(pv) & np.isfinite(hv) & (pv > 0.0)
+                    pv, hv = pv[m], hv[m]
+
+                    if pv.size:
+                        # Index nahe Ziel-Druck (in log-Skala)
+                        iR = int(np.nanargmin(np.abs(np.log(pv) - np.log(p_label_pa))))
+
+                        xR = hv[iR] / 1000.0
+                        yR = pv[iR] / 1e5
+
+                        # optional: kleinen Marker auf die Kurve setzen
+                        ax.plot([xR], [yR], marker="o", markersize=2.5, color=iso_c, alpha=0.9)
+
+                        rotR = 0 #_label_angle(ax, hv / 1000.0, pv / 1e5, iR)  # optional
+
+                        ax.annotate(f"{T_C:.0f}°C",
+                                    xy=(xR, yR),
+                                    xytext=(dxR, dy), textcoords="offset points",
+                                    ha="left", va="bottom",
+                                    fontsize=label_fontsize, fontweight=label_weight, color=label_color,
+                                    bbox=label_bbox,
+                                    path_effects=text_pe,
+                                    arrowprops=arrow_kw,
+                                    rotation=rotR, rotation_mode="anchor",
+                                    clip_on=True)
+
+            if h_liq is not None and p_liq is not None:
+                ax.plot(h_liq / 1000.0, p_liq / 1e5,
+                        color=iso_c, linestyle=iso_style, linewidth=iso_lw, alpha=iso_alpha)
+
+                if iso_labels and (j % iso_label_every == 0) and len(h_liq) > 0:
+                    pl = np.asarray(p_liq, dtype=float)
+                    hl = np.asarray(h_liq, dtype=float)
+                    m = np.isfinite(pl) & np.isfinite(hl) & (pl > 0.0)
+                    pl, hl = pl[m], hl[m]
+
+                    if pl.size:
+                        iL = int(np.nanargmin(np.abs(np.log(pl) - np.log(p_label_pa))))
+
+                        xL = hl[iL] / 1000.0
+                        yL = pl[iL] / 1e5
+
+                        ax.plot([xL], [yL], marker="o", markersize=2.5, color=iso_c, alpha=0.9)
+
+                        rotL = 0 #_label_angle(ax, hl / 1000.0, pl / 1e5, iL)  # optional
+
+                        ax.annotate(f"{T_C:.0f}°C",
+                                    xy=(xL, yL),
+                                    xytext=(dxL, dy), textcoords="offset points",
+                                    ha="right", va="bottom",
+                                    fontsize=label_fontsize, fontweight=label_weight, color=label_color,
+                                    bbox=label_bbox,
+                                    path_effects=text_pe,
+                                    arrowprops=arrow_kw,
+                                    rotation=rotL, rotation_mode="anchor",
+                                    clip_on=True)
 
     # Cycle(s)
+    label_cycle_idx = int(idxs[-1])  # Punktzahlen 1..4 nur beim letzten geplotteten Zyklus anzeigen
+
     for i in idxs:
         ph = cycle_ph[i]
         pPa = ph[:, 0]
-        hJ  = ph[:, 1]
+        hJ = ph[:, 1]
 
         p_plot = np.r_[pPa, pPa[0]] / 1e5
-        h_plot = np.r_[hJ,  hJ[0]]  / 1000.0
+        h_plot = np.r_[hJ, hJ[0]] / 1000.0
 
         ax.plot(h_plot, p_plot, marker="o", label=f"t={t[i]:g} s")
-        for k in range(4):
-            ax.annotate(str(k+1), (hJ[k]/1000.0, pPa[k]/1e5),
-                        textcoords="offset points", xytext=(5, 5))
+
+        # Punkt-Labels nur einmal zeichnen
+        if int(i) == label_cycle_idx:
+            for k in range(4):
+                ax.annotate(str(k + 1),
+                            (hJ[k] / 1000.0, pPa[k] / 1e5),
+                            bbox=label_bbox,
+                            fontsize=label_fontsize, fontweight=label_weight, color=label_color,
+                            textcoords="offset points", xytext=(5, 5))
 
     ax.set_yscale("log")
-    ax.set_xlabel("h [kJ/kg]")
-    ax.set_ylabel("p [bar]")
+    ax.set_xlabel("h [kJ/kg]",
+                  fontsize=axis_fontsize)
+    ax.set_ylabel("p [bar]",
+                  fontsize=axis_fontsize)
+    ax.tick_params(axis="both", which="both", labelsize=axis_fontsize)
 
     # Apply auto/manual limits
     if xlim is not None:
@@ -792,7 +912,8 @@ def plot_logph_cycles(
     _grid_style(ax, grid)
 
     ax.legend()
-    ax.set_title(title if title else f"log(p)-h Diagramm ({ref})")
+    ax.set_title(title if title else f"log(p)-h Diagramm ({ref})",
+                  fontsize=axis_fontsize)
 
     fig.tight_layout()
 
