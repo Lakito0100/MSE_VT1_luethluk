@@ -1,0 +1,1190 @@
+import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
+import numpy as np
+from CoolProp.CoolProp import PropsSI
+import matplotlib.patheffects as pe
+
+def extract_segment_timeseries_from_snapshots(grid_snapshots, field, ix, iy):
+    """
+    Extract the time series of a field for one segment [ix, iy]
+    from a list of grid snapshots (ResultRecorder.grid_snapshots).
+
+    Parameters
+    ----------
+    grid_snapshots : list[dict]
+        List of snapshots as stored in ResultRecorder.grid_snapshots.
+        Each entry has at least keys "t" and "st_grid".
+    field : str
+        Attribute name in SimState (e.g. "s_e", "s_ft", "T_ft", ...)
+    ix, iy : int
+        Segment coordinates (x direction: air flow, y direction: rows).
+
+    Returns
+    -------
+    t : np.ndarray, shape (nt,)
+        Time vector
+    y : np.ndarray
+        Time series of the requested field, e.g.:
+        - (nt,)            for scalars
+        - (nt, ntheta)     for s_e
+        - (nt, nr, ntheta) for T_e, etc.
+    """
+    t_list = []
+    y_list = []
+
+    for snap in grid_snapshots:
+        # Time from snapshot
+        t_list.append(snap["t"])
+
+        # SimState for this segment
+        st_ij = snap["st_grid"][ix][iy]
+
+        # Get field from the SimState
+        try:
+            val = getattr(st_ij, field)
+        except AttributeError as e:
+            raise AttributeError(
+                f"SimState hat kein Attribut '{field}'. "
+                f"Available: {list(vars(st_ij).keys())}"
+            ) from e
+
+        # Convert to array (for comparable shapes)
+        y_list.append(np.asarray(val))
+
+    t = np.array(t_list)
+
+    # Try stacking along the time axis
+    try:
+        y = np.stack(y_list, axis=0)
+    except ValueError:
+        # Fallback if shapes vary (e.g., growing frost with a new grid)
+        # Return as an object array in that case
+        y = np.array(y_list, dtype=object)
+
+    return t, y
+
+
+def extract_segment_scalar_from_snapshots(grid_snapshots, field, ix, iy):
+    """
+    Same as above, but for pure scalar values (e.g., s_ft when 0D).
+    """
+    t, y = extract_segment_timeseries_from_snapshots(grid_snapshots, field, ix, iy)
+    # Flatten if y has shape (nt, 1) or similar
+    return t, np.asarray(y).reshape(len(t))
+
+def plot_any(
+    kind,
+    x,
+    y,
+    *,
+    r_idx=None,
+    theta_idx=None,
+    y_axis=None,
+    title=None,
+    xlabel=None,
+    ylabel=None,
+    save_path=None,
+    show=True,
+    marker='o',
+    line_kwargs=None,
+    label=None,          # for one curve
+    labels=None,         # for multiple curves (e.g. 4 columns)
+    ylimitter=None
+):
+
+    x = np.asarray(x)
+    y = np.asarray(y)
+
+    if x.ndim != 1:
+        raise ValueError(f"x must be 1D, got shape {x.shape}")
+
+    # Define Y based on plot kind
+    match kind:
+        case "time vs any":
+            y_line = y
+
+        case "time vs 1D(r)":
+            if r_idx is None:
+                raise ValueError("r_idx must be provided.")
+            y_line = []
+            for t in y:
+                y_line.append(t[r_idx])
+
+        case "time vs 1D(theta)":
+            if theta_idx is None:
+                raise ValueError("theta_idx must be provided.")
+            y_line = []
+            for t in y:
+                y_line.append(t[theta_idx])
+
+        case "time vs 2D(r,theta)":
+            if r_idx is None:
+                raise ValueError("r_idx must be provided.")
+            if theta_idx is None:
+                raise ValueError("theta_idx must be provided.")
+            y_line = []
+            for t in y:
+                y_line.append(t[r_idx, theta_idx])
+
+        case _:
+            raise ValueError(f"Unknown kind: {kind}")
+
+    y_line = np.asarray(y_line)
+
+    # Plot
+    fig, ax = plt.subplots()
+    plot_kwargs = dict(marker=marker)
+    if line_kwargs:
+        plot_kwargs.update(line_kwargs)
+
+    # If y_line is 1D -> one curve
+    # If y_line is 2D -> multiple curves (e.g., 4 columns)
+    if y_line.ndim == 1:
+        if label is not None:
+            plot_kwargs["label"] = label
+        ax.plot(x, y_line, **plot_kwargs)
+    elif y_line.ndim == 2:
+        # Matplotlib auto-plots multiple curves
+        # (each column of y_line is one curve)
+        ax.plot(x, y_line, **plot_kwargs)
+        # Set labels later via ax.legend(labels)
+    else:
+        raise ValueError(f"y_line must be 1D or 2D, got shape {y_line.shape}")
+
+    if ylimitter is not None:
+        ax.set_ylim(ylimitter[0], ylimitter[1])
+
+    ax.set_xlabel(xlabel if xlabel else "x")
+    ax.set_ylabel(ylabel if ylabel else "y")
+    if title:
+        ax.set_title(title)
+    ax.grid(True)
+
+    # Legend logic
+    if y_line.ndim == 1:
+        if label is not None:
+            ax.legend()
+    else:  # multiple curves
+        if labels is not None:
+            ax.legend(labels)
+
+    if save_path:
+        fig.savefig(save_path, dpi=600, bbox_inches="tight")
+    if show:
+        plt.show()
+    return fig, ax
+
+def plot_spatial_slice(
+    y,
+    *,
+    vary="r",              # "r" or "theta"
+    t_idx=0,               # time index (ignored if y is 2D)
+    r_idx=None,            # fixed r when varying theta
+    theta_idx=None,        # fixed theta when varying r
+    r_coords=None,         # optional 1D array of r positions (for x-axis)
+    theta_coords=None,     # optional 1D array of theta positions (for x-axis)
+    title=None,
+    xlabel=None,
+    ylabel=None,
+    save_path=None,
+    show=True,
+    marker='o',
+    line_kwargs=None
+):
+    """
+    Plot a spatial profile through r or theta at one specified time step.
+
+    Parameters
+    ----------
+    y : array-like
+        Field with shape (nt, nr, ntheta) or (nr, ntheta).
+    vary : {"r","theta"}
+        Which spatial direction to plot along.
+    t_idx : int
+        Time index to slice at (ignored if y is 2D).
+    r_idx : int or None
+        If vary == "theta", fix radius with r_idx.
+    theta_idx : int or None
+        If vary == "r", fix angle with theta_idx.
+    r_coords, theta_coords : array-like or None
+        Coordinate vectors for pretty x-axis (otherwise indices are used).
+    """
+    y = np.asarray(y)
+
+    # Infer layout
+    if y.ndim == 3:
+        # Assume (t, r, theta)
+        nt, nr, ntheta = y.shape
+        if not (0 <= t_idx < nt):
+            raise IndexError(f"t_idx {t_idx} out of bounds for time axis with size {nt}")
+        y_t = y[t_idx]
+    elif y.ndim == 2:
+        nr, ntheta = y.shape
+        y_t = y  # time already collapsed
+    else:
+        raise ValueError(f"Expected y with ndim 2 or 3, got shape {y.shape}")
+
+    # Defaults for missing indices
+    if vary == "r":
+        if theta_idx is None:
+            theta_idx = 0
+        if not (0 <= theta_idx < ntheta):
+            raise IndexError(f"theta_idx {theta_idx} out of bounds for theta axis size {ntheta}")
+        y_line = y_t[:, theta_idx]            # length nr
+        x_vals = np.asarray(r_coords) if r_coords is not None else np.arange(nr)
+        xlab_default = "r"
+    elif vary == "theta":
+        if r_idx is None:
+            r_idx = 0
+        if not (0 <= r_idx < nr):
+            raise IndexError(f"r_idx {r_idx} out of bounds for r axis size {nr}")
+        y_line = y_t[r_idx, :]                # length ntheta
+        x_vals = np.asarray(theta_coords) if theta_coords is not None else np.arange(ntheta)
+        xlab_default = "θ"
+    else:
+        raise ValueError("vary must be 'r' or 'theta'")
+
+    if x_vals.shape[0] != y_line.shape[0]:
+        raise ValueError(
+            f"x length {x_vals.shape[0]} does not match y length {y_line.shape[0]} "
+            f"for vary='{vary}'."
+        )
+
+    # Plot
+    fig, ax = plt.subplots()
+    kw = dict(marker=marker)
+    if line_kwargs:
+        kw.update(line_kwargs)
+    ax.plot(x_vals, y_line, **kw)
+
+    if xlabel:
+        ax.set_xlabel(xlabel)
+    else:
+        ax.set_xlabel(xlab_default if r_coords is None and theta_coords is None
+                      else (xlab_default + " coordinate"))
+
+    ax.set_ylabel(ylabel if ylabel else "value")
+
+    if title:
+        ax.set_title(title)
+    else:
+        if y.ndim == 3:
+            ax.set_title(f"Spatial slice at t_idx={t_idx} (vary={vary})")
+        else:
+            ax.set_title(f"Spatial slice (vary={vary})")
+
+    ax.grid(True)
+
+    if save_path:
+        fig.savefig(save_path, dpi=600, bbox_inches="tight")
+    if show:
+        plt.show()
+    return fig, ax
+
+def plot_finned_tube_side(he):
+    """
+    Draw a side view: vertical tube (rectangle) with horizontal fins (rectangles).
+    Expected attributes in `he`:
+      - n_fin (number of fins)
+      - l_fin (fin extension per side; total width = d_tube_a + 2*l_fin)
+      - d_fin (fin thickness)
+      - fin_pitch (center-to-center spacing of fins)
+      - d_tube_a (outer tube diameter)
+      - tube_thickness (tube wall thickness)
+    """
+    # Read geometry
+    N   = int(he.n_fin)
+    Lf  = float(he.l_fin)         # extension per side
+    t_f = float(he.fin_thickness)         # fin thickness
+    p   = float(he.fin_pitch_cc)     # fin pitch (center-to-center)
+    D   = float(he.d_tube_a)
+    t_t = float(he.tube_thickness)
+
+    if N <= 0:
+        raise ValueError("n_fin must be > 0.")
+
+    # Total length in y-direction: from first fin (bottom) to last (top)
+    # Assumption: pitch is center-to-center, so first fin center at y = t_f/2
+    # => L = t_f + (N-1)*p, and fins span exactly [0, L].
+    L = t_f + (N - 1) * p
+
+    # Total fin width in x-direction
+    Hfin = D + 2 * Lf
+
+    fig, ax = plt.subplots()
+
+    # Tube (side view as rectangle): width = D, height = L
+    # Center the tube at x=0, span y in [0, L]
+    tube = Rectangle((-D/2, 0.0), D, L, fill=False, linewidth=2)
+    ax.add_patch(tube)
+
+    # Draw inner tube if wall thickness makes sense
+    Di = D - 2.0 * t_t
+    if Di > 0:
+        inner = Rectangle((-Di/2, 0.0), Di, L, fill=False, linewidth=1, linestyle='--', alpha=0.7)
+        ax.add_patch(inner)
+
+    # Draw fins (horizontal rectangles), centered at x=0
+    # Fin centers at y = t_f/2 + i*p; height = t_f, width = Hfin
+    for i in range(N):
+        y_center = t_f / 2.0 + i * p
+        fin = Rectangle((-Hfin/2.0, y_center - t_f/2.0), Hfin, t_f, fill=False, linewidth=1)
+        ax.add_patch(fin)
+
+    # Axes & layout
+    ax.set_aspect('equal', 'box')
+    ax.set_xlim(-1.1 * (Hfin / 2.0), 1.1 * (Hfin / 2.0))  # width
+    ax.set_ylim(-0.05 * L, 1.05 * L)                      # length
+    ax.set_xlabel("Breite [m]")
+    ax.set_ylabel("Länge [m]")
+    ax.set_title("Lamellenverdampfer – Seitenansicht")
+    ax.grid(True, alpha=0.3)
+    plt.show()
+
+def plot_frost_polar_slice(
+    y, *,                         # y: (t, θ) or (t, r, θ) – may be list/object
+    vary="theta",
+    t_idx=None,
+    at_time=None,                 # seconds; picks nearest timestamp
+    t=None,                       # time vector in s (for at_time)
+    r_idx=None,
+    theta_vals=None,
+    theta_max=np.pi/2,
+    unit="mm",
+    title=None,
+    ylabel=None,
+    marker=None,
+    linestyle=None,
+    ax=None,
+    legend=True
+):
+    assert vary == "theta", "This function currently plots s_e(θ); set vary='theta'."
+
+    arr = np.asarray(y, dtype=object)
+    if arr.ndim == 1:
+        # List of 1D sequences -> stack into (time, theta)
+        arr = np.vstack([np.asarray(row, dtype=float) for row in arr])
+    else:
+        arr = np.asarray(arr, dtype=float)
+    y = arr
+    assert y.ndim in (2, 3), f"y has unexpected shape {y.shape}; expected (t,θ) or (t,r,θ)."
+
+    # θ axis
+    ntheta = y.shape[-1]
+    if theta_vals is None:
+        theta = np.linspace(0.0, theta_max, ntheta)
+    else:
+        theta = np.asarray(theta_vals)
+        assert len(theta) == ntheta, "theta_vals does not match y.shape[-1]."
+
+    # Time indices / at_time
+    if t_idx is not None:
+        idxs = np.atleast_1d(t_idx).astype(int)
+    elif at_time is not None:
+        assert t is not None, "For at_time, t (time vector) must be provided."
+        t = np.asarray(t).ravel()
+        targets = np.atleast_1d(at_time).astype(float)
+        idxs = np.array([np.abs(t - tau).argmin() for tau in targets], dtype=int)
+    else:
+        idxs = np.array([0], dtype=int)
+
+    # Unit
+    factor = 1000.0 if unit.lower() == "mm" else 1.0
+    label_unit = "mm" if unit.lower() == "mm" else "m"
+
+    owns_fig = ax is None
+    if ax is None:
+        fig = plt.figure()
+        ax = fig.add_subplot(111, projection="polar")
+    else:
+        fig = ax.figure
+
+    # >>> Show only 0..90°
+    rad_max = np.deg2rad(90)
+    ax.set_thetalim(0, rad_max)  # limits in radians
+    ax.set_thetagrids([0, 30, 60, 90])  # ticks in degrees
+
+    # Plot
+    for i in idxs:
+        if i < 0 or i >= y.shape[0]:
+            raise IndexError(f"t_idx {i} out of bounds [0,{y.shape[0]-1}].")
+        if y.ndim == 2:
+            yplot = y[i, :]
+        else:
+            assert r_idx is not None, "For 3D y, please provide r_idx."
+            yplot = y[i, r_idx, :]
+
+        lbl = f"t={t[i]:g} s" if (t is not None and len(np.shape(t))==1 and i < len(t)) else f"t_idx={i}"
+        ax.plot(theta, yplot * factor,
+                label=lbl,
+                marker=marker if marker is not None else None,
+                linestyle=linestyle if linestyle is not None else None)
+
+    ax.set_theta_zero_location("W")
+    ax.set_theta_direction(-1)
+    ax.set_rlabel_position(135)
+    if title:
+        ax.set_title(title)
+    ax.set_ylabel(ylabel if ylabel else f"s_e [{label_unit}]")
+    if legend:
+        ax.legend(loc="upper left")#, bbox_to_anchor=(1.3, 1.1))
+
+    if owns_fig:
+        plt.show()
+    return fig, ax
+
+def extract_segment_field_grid(
+    grid_snapshots,
+    field: str,
+    *,
+    source: str = "st",
+    t_idx: int | None = None,
+    at_time: float | None = None
+):
+    if not grid_snapshots:
+        raise ValueError("grid_snapshots is empty.")
+
+    # Determine time index
+    if t_idx is None:
+        if at_time is None:
+            t_idx = 0
+        else:
+            times = np.array([snap["t"] for snap in grid_snapshots], dtype=float)
+            t_idx = int(np.abs(times - at_time).argmin())
+    else:
+        # Allow Python-style negative indices
+        if t_idx < 0:
+            t_idx = len(grid_snapshots) + t_idx
+
+    if t_idx < 0 or t_idx >= len(grid_snapshots):
+        raise IndexError(f"t_idx {t_idx} out of bounds [0, {len(grid_snapshots)-1}]")
+
+    snap = grid_snapshots[t_idx]
+    t_sel = float(snap["t"])
+
+    if source == "st":
+        grid = snap["st_grid"]
+    elif source == "cfg":
+        grid = snap["cfg_grid"]
+    else:
+        raise ValueError("source must be 'st' or 'cfg'.")
+
+    n_x = len(grid)
+    n_y = len(grid[0])
+
+    Z = np.zeros((n_x, n_y), dtype=float)
+
+    for ix in range(n_x):
+        for iy in range(n_y):
+            obj = grid[ix][iy]
+            val = getattr(obj, field)
+            Z[ix, iy] = float(val)
+
+    return t_sel, Z
+
+def plot_segment_field_grid(
+    grid_snapshots,
+    field: str,
+    *,
+    source: str = "st",
+    t_idx: int | None = None,
+    at_time: float | None = None,
+    title: str | None = None,
+    cmap: str = "viridis",
+    show: bool = True,
+    colorbar: bool = True,
+    field_label: str | None = None,
+
+    save_path: str | None = None,
+    dpi: int = 600,
+
+    show_ref_path: bool = False,
+    geom=None,
+    path_variant: str | None = None,
+    path: list[tuple[int, int]] | None = None,
+    path_color: str = "w",
+    path_lw: float = 2.0,
+    path_alpha: float = 0.9,
+    path_marker: bool = False,
+    path_marker_every: int = 1,
+    mark_in_out: bool = True,
+):
+    """
+    Plot a field over all segments as a 2D map (ix vs. iy).
+
+    ix: segments in air-flow direction (0..n_seg_l-1)
+    iy: segments in refrigerant direction (0..n_seg_r-1)
+
+      - save_path: save figure to file if not None
+      - show_ref_path: overlay refrigerant connection path
+      - geom/path_variant/path: choose how to obtain the path
+    """
+    t_sel, Z = extract_segment_field_grid(
+        grid_snapshots,
+        field,
+        source=source,
+        t_idx=t_idx,
+        at_time=at_time,
+    )
+
+    n_x, n_y = Z.shape
+    fig, ax = plt.subplots()
+
+    im = ax.imshow(
+        Z.T,                # transpose so x is horizontal, y vertical
+        origin="lower",
+        aspect="auto",
+        cmap=cmap
+    )
+
+    ax.set_xlabel("il (Luftflussrichtung)")
+    ax.set_ylabel("ir (Reihen)")
+
+    if title is None:
+        ax.set_title(f"{field} bei t = {t_sel:.1f} s")
+    else:
+        ax.set_title(title + f" (t = {t_sel:.1f} s)")
+
+    ax.set_xticks(np.arange(n_x))
+    ax.set_yticks(np.arange(n_y))
+
+    if colorbar:
+        cbar = fig.colorbar(im, ax=ax)
+        cbar.set_label(field_label)
+
+    # -------- NEW: overlay refrigerant path --------
+    if show_ref_path:
+        # Pfad bestimmen: entweder direkt übergeben oder aus geom ableiten
+        if path is None:
+            if geom is None or not hasattr(geom, "build_connection_path"):
+                raise ValueError("show_ref_path=True requires either `path=...` or `geom` with build_connection_path().")
+            # Default: wenn nicht gesetzt, versuche geom.CP, sonst 'serpentine'
+            variant = path_variant if path_variant is not None else getattr(geom, "CP", "serpentine")
+            path = geom.build_connection_path(variant=variant)
+
+        # Validierung + Clipping (falls mal etwas out-of-range wäre)
+        pts = np.asarray(path, dtype=int)
+        if pts.ndim != 2 or pts.shape[1] != 2:
+            raise ValueError(f"`path` must be a list of (ix,iy), got shape {pts.shape}.")
+
+        ix = np.clip(pts[:, 0], 0, n_x - 1).astype(float)
+        iy = np.clip(pts[:, 1], 0, n_y - 1).astype(float)
+
+        # Linie auf Segmentzentren
+        ax.plot(ix, iy, color="white", lw=path_lw + 2.0, alpha=0.95, zorder=5)
+        ax.plot(ix, iy, color="black", lw=path_lw, alpha=0.95, zorder=6)
+
+        if path_marker:
+            sel = np.arange(0, len(ix), max(int(path_marker_every), 1))
+
+            # Marker ebenfalls als Halo
+            ax.scatter(ix[sel], iy[sel], s=18, color="white", alpha=0.95, zorder=6)
+            ax.scatter(ix[sel], iy[sel], s=10, color="black", alpha=0.95, zorder=7)
+
+        if mark_in_out and len(ix) >= 2:
+            # Inlet: Kreis
+            ax.scatter(ix[0], iy[0], s=85, marker="o", facecolors="white",
+                       edgecolors="white", linewidths=3.0, zorder=8)
+            ax.scatter(ix[0], iy[0], s=85, marker="o", facecolors="none",
+                       edgecolors="black", linewidths=1.8, zorder=9)
+
+            # Outlet: Kreuz
+            ax.scatter(ix[-1], iy[-1], s=95, marker="x", color="white",
+                       linewidths=3.0, zorder=8)
+            ax.scatter(ix[-1], iy[-1], s=95, marker="x", color="black",
+                       linewidths=1.8, zorder=9)
+
+            txt_bbox = dict(boxstyle="round,pad=0.15", facecolor="white", edgecolor="none", alpha=0.85)
+
+            ax.annotate("in", (ix[0], iy[0]), textcoords="offset points", xytext=(8, -4),
+                        color="black", fontsize=10, weight="normal", zorder=11, bbox=txt_bbox)
+
+            ax.annotate("out", (ix[-1], iy[-1]), textcoords="offset points", xytext=(8, -4),
+                        color="black", fontsize=10, weight="normal", zorder=11, bbox=txt_bbox)
+
+    fig.tight_layout()
+
+    if save_path:
+        fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
+
+    if show:
+        plt.show()
+
+    return fig, ax, Z
+
+def _sat_dome_ph(ref: str, n: int = 400):
+    T_tr = PropsSI("Ttriple", ref)
+    T_cr = PropsSI("Tcrit", ref)
+    T = np.linspace(T_tr + 1.0, T_cr - 1.0, n)
+
+    p  = np.array([PropsSI("P", "T", Ti, "Q", 0, ref) for Ti in T], dtype=float)
+    hL = np.array([PropsSI("H", "T", Ti, "Q", 0, ref) for Ti in T], dtype=float)
+    hV = np.array([PropsSI("H", "T", Ti, "Q", 1, ref) for Ti in T], dtype=float)
+    return hL, hV, p
+
+def _grid_style(ax, grid: str):
+    grid = (grid or "dashed").lower()
+    if grid in ("none", "off", "false", "0"):
+        ax.grid(False)
+    elif grid in ("dashed", "dash"):
+        ax.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.3)
+    elif grid in ("light", "thin"):
+        ax.grid(True, which="both", linestyle="-", linewidth=0.4, alpha=0.2)
+    else:
+        raise ValueError("grid must be 'none', 'dashed', or 'light'.")
+
+def _auto_limits_logph_from_cycle(cycle_ph_sel, *, x_pad_rel=0.5, x_pad_abs=15.0, y_pad_factor=1.5):
+    """
+    cycle_ph_sel: (nsel, 4, 2) with p[Pa], h[J/kg]
+    Returns: (xlim_kJkg, ylim_bar)
+    """
+    ph = np.asarray(cycle_ph_sel, dtype=float)
+    p_bar = ph[:, :, 0] / 1e5
+    h_kj  = ph[:, :, 1] / 1000.0
+
+    p_bar = p_bar[np.isfinite(p_bar)]
+    h_kj  = h_kj[np.isfinite(h_kj)]
+
+    if p_bar.size == 0 or h_kj.size == 0:
+        return None, None
+
+    hmin, hmax = float(np.min(h_kj)), float(np.max(h_kj))
+    pmin, pmax = float(np.min(p_bar[p_bar > 0])) if np.any(p_bar > 0) else 0.1, float(np.max(p_bar))
+
+    dh = hmax - hmin
+    pad_x = max(x_pad_abs, x_pad_rel * dh) if dh > 1e-9 else x_pad_abs
+    xlim = (hmin - pad_x, hmax + pad_x)
+
+    # log-y: multiplicative padding is more stable
+    ylo = max(pmin / y_pad_factor, 1e-6)
+    yhi = pmax * y_pad_factor
+    ylim = (ylo, yhi)
+
+    return xlim, ylim
+
+def _compute_isotherms_ph(ref: str, pmin: float, pmax: float, Ts_C, nP: int = 90):
+    lines = []
+    for T_C in Ts_C:
+        T_K = float(T_C) + 273.15
+        try:
+            p_sat = float(PropsSI("P", "T", T_K, "Q", 0, ref))
+        except Exception:
+            continue
+
+        # Vapor side (p <= p_sat)
+        h_vap = p_vap = None
+        p_hi_vap = min(p_sat * 0.999, pmax)
+        if pmin < p_hi_vap:
+            pv = np.geomspace(max(pmin, 1.0), p_hi_vap, nP)
+            hv = []
+            for p in pv:
+                try:
+                    hv.append(float(PropsSI("H", "T", T_K, "P", float(p), ref)))
+                except Exception:
+                    hv.append(np.nan)
+            hv = np.asarray(hv, dtype=float)
+            m = np.isfinite(hv)
+            if np.any(m):
+                h_vap, p_vap = hv[m], pv[m]
+
+        # Liquid side (p >= p_sat)
+        h_liq = p_liq = None
+        p_lo_liq = max(p_sat * 1.001, pmin)
+        if p_lo_liq < pmax:
+            pl = np.geomspace(p_lo_liq, pmax, nP)
+            hl = []
+            for p in pl:
+                try:
+                    hl.append(float(PropsSI("H", "T", T_K, "P", float(p), ref)))
+                except Exception:
+                    hl.append(np.nan)
+            hl = np.asarray(hl, dtype=float)
+            m = np.isfinite(hl)
+            if np.any(m):
+                h_liq, p_liq = hl[m], pl[m]
+
+        if (h_vap is not None) or (h_liq is not None):
+            lines.append((float(T_C), h_vap, p_vap, h_liq, p_liq))
+    return lines
+
+def plot_logph_cycles(
+    ref: str,
+    t,
+    cycle_ph,
+    *,
+    t_idx=None,
+    at_time=None,
+    t_start=None,
+    t_end=None,
+    every_s=None,                 # e.g. 60.0
+    plot_dome=True,
+
+    # Isotherms + grid
+    isotherms: bool = True,
+    iso_Ts_C=None,                # e.g. [-10, 0, 10, 20, 30, 40]
+    n_iso: int = 10,               # falls iso_Ts_C None
+    iso_style: str = "--",
+    iso_lw: float = 1.0,
+    iso_alpha: float = 0.45,
+    iso_labels: bool = True,
+    grid: str = "dashed",         # "none" | "dashed" | "light"
+
+    # ---- NEW: Auto-scaling without changing the call site ----
+    figsize=None,                 # None => automatic (larger default)
+    xlim=None,                    # (xmin, xmax) in kJ/kg; None => automatic
+    ylim=None,                    # (ymin, ymax) in bar;   None => automatic
+
+    title=None,
+    save_path=None,
+    show=True
+):
+    """
+    t:        (nt,)
+    cycle_ph: (nt,4,2) or list of 4x2 per time:
+              cycle_ph[i] = [[p1,h1],[p2,h2],[p3,h3],[p4,h4]] with p[Pa], h[J/kg]
+    """
+
+    def _label_angle(ax, x, y, i, clamp=80):
+        """
+        Winkel der Kurve in Bildschirmkoordinaten, normalisiert auf [-90, 90]
+        und optional auf +/- clamp begrenzt.
+        """
+        i0 = max(i - 1, 0)
+        i1 = min(i + 1, len(x) - 1)
+
+        p0 = ax.transData.transform((x[i0], y[i0]))
+        p1 = ax.transData.transform((x[i1], y[i1]))
+
+        ang = float(np.degrees(np.arctan2(p1[1] - p0[1], p1[0] - p0[0])))
+
+        ang = (ang + 180.0) % 360.0 - 180.0  # -> [-180, 180]
+        if ang > 90.0:
+            ang -= 180.0
+        elif ang < -90.0:
+            ang += 180.0
+
+        if clamp is not None:
+            ang = max(-clamp, min(clamp, ang))
+
+        return ang
+
+    t = np.asarray(t, dtype=float).ravel()
+
+    arr = np.asarray(cycle_ph, dtype=object)
+    if arr.ndim == 1:
+        arr = np.stack([np.asarray(row, dtype=float) for row in arr], axis=0)
+    else:
+        arr = np.asarray(arr, dtype=float)
+    cycle_ph = arr
+
+    if cycle_ph.ndim != 3 or cycle_ph.shape[1:] != (4, 2):
+        raise ValueError(f"cycle_ph has shape {cycle_ph.shape}, expected (nt,4,2).")
+
+    # --- Time selection ---
+    if t_idx is not None:
+        idxs = np.atleast_1d(t_idx).astype(int)
+        idxs = np.array([i if i >= 0 else len(t) + i for i in idxs], dtype=int)
+    elif at_time is not None:
+        targets = np.atleast_1d(at_time).astype(float)
+        idxs = np.array([np.abs(t - tau).argmin() for tau in targets], dtype=int)
+    elif (t_start is not None) or (t_end is not None):
+        if t_start is None: t_start = float(t[0])
+        if t_end   is None: t_end   = float(t[-1])
+        if every_s is None:
+            idxs = np.where((t >= t_start) & (t <= t_end))[0]
+        else:
+            targets = np.arange(float(t_start), float(t_end) + 1e-12, float(every_s))
+            idxs = np.array([np.abs(t - tau).argmin() for tau in targets], dtype=int)
+            idxs = np.unique(idxs)
+    else:
+        idxs = np.array([0], dtype=int)
+
+    # --- Auto-limits (if not explicitly set) ---
+    if xlim is None or ylim is None:
+        auto_xlim, auto_ylim = _auto_limits_logph_from_cycle(cycle_ph[idxs])
+        if xlim is None:
+            xlim = auto_xlim
+        if ylim is None:
+            ylim = auto_ylim
+
+    # Isotherms need pmin/pmax in Pa: prefer (auto/given) y-limits
+    if ylim is not None:
+        pmin_pa = float(ylim[0]) * 1e5
+        pmax_pa = float(ylim[1]) * 1e5
+    else:
+        # Fallback
+        p_sel = cycle_ph[idxs, :, 0].ravel()
+        p_sel = p_sel[np.isfinite(p_sel)]
+        pmin_pa = max(float(np.min(p_sel)) * 0.7, 1.0) if p_sel.size else 1e4
+        pmax_pa = float(np.max(p_sel)) * 1.3 if p_sel.size else 1e7
+
+    # --- Figure ---
+    if figsize is None:
+        figsize = (11, 7)  # larger default without changing call sites
+    fig, ax = plt.subplots(figsize=figsize)
+
+    iso_c = "0.0"
+    dome_c = iso_c
+
+    # Saturation dome
+    if plot_dome:
+        hL, hV, p = _sat_dome_ph(ref)
+        ax.plot(hL/1000.0, p/1e5,color=dome_c,linewidth=1.2)
+        ax.plot(hV/1000.0, p/1e5,color=dome_c,linewidth=1.2)
+
+    # Isotherms
+    if isotherms:
+        if iso_Ts_C is None:
+            # Tmin/Tmax from selected points (via P,H -> T)
+            Ts = []
+            for i in idxs:
+                for k in range(4):
+                    pPa = float(cycle_ph[i, k, 0])
+                    hJ  = float(cycle_ph[i, k, 1])
+                    if not (np.isfinite(pPa) and np.isfinite(hJ)):
+                        continue
+                    try:
+                        Ts.append(float(PropsSI("T", "P", pPa, "H", hJ, ref) - 273.15))
+                    except Exception:
+                        pass
+            if len(Ts) >= 2:
+                Tmin, Tmax = min(Ts) - 5.0, max(Ts) + 5.0
+                Ts_C = np.linspace(Tmin, Tmax, int(n_iso))
+                Ts_C = [5.0 * round(x/5.0) for x in Ts_C]
+                Ts_C = sorted(set(Ts_C))
+            else:
+                Ts_C = [-30, -20, -10, 0, 10, 20, 30, 40]
+        else:
+            Ts_C = list(iso_Ts_C)
+
+        iso_lines = _compute_isotherms_ph(ref, pmin_pa, pmax_pa, Ts_C, nP=90)
+        # --- Label-Position als fester Druck in der log-Skala (0..1) ---
+        iso_label_pfrac = 0.05  # 0.75 => eher oben; 0.65..0.85 je nach Geschmack
+        iso_label_every = 2  # z.B. 2 => nur jede zweite Isotherme beschriften
+
+        # Optional: leicht lesbarer Label-Hintergrund
+        label_bbox = dict(boxstyle="round,pad=0.15", facecolor="white", edgecolor="none", alpha=0.6)
+
+        # Ziel-Druck (in Pa) entlang log(p) zwischen pmin_pa und pmax_pa
+        p_label_pa = 10.0 ** (
+                np.log10(pmin_pa) + iso_label_pfrac * (np.log10(pmax_pa) - np.log10(pmin_pa))
+        )
+
+        arrow_kw = dict(arrowstyle="-", lw=0.8, color=iso_c, alpha=0.9)
+        text_pe = [pe.withStroke(linewidth=3, foreground="white")]  # weißer Rand um Text
+
+        axis_fontsize = 14
+        label_fontsize = 11
+        label_weight = "normal"
+        label_color = "black"
+
+        for j, (T_C, h_vap, p_vap, h_liq, p_liq) in enumerate(iso_lines):
+
+            # Stagger gegen Überlappung (Offset in Punkten)
+            dy = 9 + (j % 4) * 9  # 2, 9, 16, 23 pt
+            dxR, dxL = -4, -4
+
+            if h_vap is not None and p_vap is not None:
+                ax.plot(h_vap / 1000.0, p_vap / 1e5,
+                        color=iso_c, linestyle=iso_style, linewidth=iso_lw, alpha=iso_alpha)
+
+                if iso_labels and (j % iso_label_every == 0) and len(h_vap) > 0:
+                    pv = np.asarray(p_vap, dtype=float)
+                    hv = np.asarray(h_vap, dtype=float)
+                    m = np.isfinite(pv) & np.isfinite(hv) & (pv > 0.0)
+                    pv, hv = pv[m], hv[m]
+
+                    if pv.size:
+                        # Index nahe Ziel-Druck (in log-Skala)
+                        iR = int(np.nanargmin(np.abs(np.log(pv) - np.log(p_label_pa))))
+
+                        xR = hv[iR] / 1000.0
+                        yR = pv[iR] / 1e5
+
+                        # optional: kleinen Marker auf die Kurve setzen
+                        ax.plot([xR], [yR], marker="o", markersize=2.5, color=iso_c, alpha=0.9)
+
+                        rotR = 0 #_label_angle(ax, hv / 1000.0, pv / 1e5, iR)  # optional
+
+                        ax.annotate(f"{T_C:.0f}°C",
+                                    xy=(xR, yR),
+                                    xytext=(dxR, dy), textcoords="offset points",
+                                    ha="left", va="bottom",
+                                    fontsize=label_fontsize, fontweight=label_weight, color=label_color,
+                                    bbox=label_bbox,
+                                    path_effects=text_pe,
+                                    arrowprops=arrow_kw,
+                                    rotation=rotR, rotation_mode="anchor",
+                                    clip_on=True)
+
+            if h_liq is not None and p_liq is not None:
+                ax.plot(h_liq / 1000.0, p_liq / 1e5,
+                        color=iso_c, linestyle=iso_style, linewidth=iso_lw, alpha=iso_alpha)
+
+                if iso_labels and (j % iso_label_every == 0) and len(h_liq) > 0:
+                    pl = np.asarray(p_liq, dtype=float)
+                    hl = np.asarray(h_liq, dtype=float)
+                    m = np.isfinite(pl) & np.isfinite(hl) & (pl > 0.0)
+                    pl, hl = pl[m], hl[m]
+
+                    if pl.size:
+                        iL = int(np.nanargmin(np.abs(np.log(pl) - np.log(p_label_pa))))
+
+                        xL = hl[iL] / 1000.0
+                        yL = pl[iL] / 1e5
+
+                        ax.plot([xL], [yL], marker="o", markersize=2.5, color=iso_c, alpha=0.9)
+
+                        rotL = 0 #_label_angle(ax, hl / 1000.0, pl / 1e5, iL)  # optional
+
+                        ax.annotate(f"{T_C:.0f}°C",
+                                    xy=(xL, yL),
+                                    xytext=(dxL, dy), textcoords="offset points",
+                                    ha="right", va="bottom",
+                                    fontsize=label_fontsize, fontweight=label_weight, color=label_color,
+                                    bbox=label_bbox,
+                                    path_effects=text_pe,
+                                    arrowprops=arrow_kw,
+                                    rotation=rotL, rotation_mode="anchor",
+                                    clip_on=True)
+
+    # Cycle(s)
+    label_cycle_idx = int(idxs[-1])  # Punktzahlen 1..4 nur beim letzten geplotteten Zyklus anzeigen
+
+    for i in idxs:
+        ph = cycle_ph[i]
+        pPa = ph[:, 0]
+        hJ = ph[:, 1]
+
+        p_plot = np.r_[pPa, pPa[0]] / 1e5
+        h_plot = np.r_[hJ, hJ[0]] / 1000.0
+
+        ax.plot(h_plot, p_plot, marker="o", label=f"t={t[i]:g} s")
+
+        # Punkt-Labels nur einmal zeichnen
+        if int(i) == label_cycle_idx:
+            for k in range(4):
+                ax.annotate(str(k + 1),
+                            (hJ[k] / 1000.0, pPa[k] / 1e5),
+                            bbox=label_bbox,
+                            fontsize=label_fontsize, fontweight=label_weight, color=label_color,
+                            textcoords="offset points", xytext=(5, 5))
+
+    ax.set_yscale("log")
+    ax.set_xlabel("h [kJ/kg]",
+                  fontsize=axis_fontsize)
+    ax.set_ylabel("p [bar]",
+                  fontsize=axis_fontsize)
+    ax.tick_params(axis="both", which="both", labelsize=axis_fontsize)
+
+    # Apply auto/manual limits
+    if xlim is not None:
+        ax.set_xlim(xlim[0], xlim[1])
+    if ylim is not None:
+        ax.set_ylim(ylim[0], ylim[1])
+
+    _grid_style(ax, grid)
+
+    ax.legend()
+    ax.set_title(title if title else f"log(p)-h Diagramm ({ref})",
+                  fontsize=axis_fontsize)
+
+    fig.tight_layout()
+
+    if save_path:
+        fig.savefig(save_path, dpi=600, bbox_inches="tight")
+    if show:
+        plt.show()
+    return fig, ax
+
+def _psat_buck_Pa(T_C):
+    """
+    Saturation vapor pressure after Buck (1981), piecewise over water/ice.
+    T_C in °C, returns Pa.
+    """
+    T = np.asarray(T_C, dtype=float)
+    # Buck: e_s in kPa
+    e_kPa = np.where(
+        T >= 0.0,
+        0.61121 * np.exp((18.678 - T / 234.5) * (T / (257.14 + T))),   # over water
+        0.61115 * np.exp((23.036 - T / 333.7) * (T / (279.82 + T)))    # over ice
+    )
+    return 1000.0 * e_kPa  # Pa
+
+
+def _humidity_ratio_from_pv(pv, P):
+    """
+    Humidity ratio w [kg/kg_dry_air] from partial pressure pv and total pressure P [Pa].
+    """
+    pv = np.asarray(pv, dtype=float)
+    P = float(P)
+    pv = np.clip(pv, 0.0, 0.999 * P)
+    return 0.62198 * pv / (P - pv)
+
+
+def _moist_air_enthalpy_kJkg_da(T_C, w):
+    """
+    Linear standard approximation (as in your text): h [kJ/kg_da]
+    T_C in °C, w in kg/kg_da.
+    """
+    T_C = np.asarray(T_C, dtype=float)
+    w   = np.asarray(w, dtype=float)
+    c_p_da = 1.006  # kJ/(kg K)
+    c_p_v  = 1.86   # kJ/(kg K)
+    h_g0   = 2501.0 # kJ/kg
+    return c_p_da * T_C + w * (h_g0 + c_p_v * T_C)
+
+
+def plot_mollier_hx_time(
+    t,
+    humidity,
+    air_temp_l,
+    *,
+    P=101325.0,
+    seg_idx=-1,                    # int | list[int] | "mean"
+    plot_background=True,
+    T_bg_min=-25.0,
+    T_bg_max=35.0,
+    iso_Ts_C=None,                 # e.g. [-20,-10,0,10,20,30]
+    rh_lines=(0.2, 0.4, 0.6, 0.8, 1.0),
+    title=None,
+    save_path=None,
+    show=True,
+    ax=None,
+    marker=None,
+    line_kwargs=None,
+    s_scatter=14
+):
+    """
+    Mollier (h-x) plot (h over x=w) for moist air, colored by time.
+
+    Expected units (as in your recorder):
+      - t: seconds
+      - humidity: w [kg/kg_dry_air] as (nt,) or (nt,nseg)
+      - air_temp_l: T [°C] as (nt,) or (nt,nseg)
+
+    seg_idx:
+      - int: segment index (e.g. -1 = outlet, 0 = inlet)
+      - list[int]: multiple segments at once
+      - "mean": average over segments (axis 1)
+    """
+
+    t = np.asarray(t, dtype=float).ravel()
+    w_raw = np.asarray(humidity, dtype=float)
+    T_raw = np.asarray(air_temp_l, dtype=float)
+
+    if t.ndim != 1:
+        raise ValueError("t must be 1D.")
+    if w_raw.shape[0] != t.shape[0] or T_raw.shape[0] != t.shape[0]:
+        raise ValueError(f"Time axis mismatch: t={t.shape}, w={w_raw.shape}, T={T_raw.shape}")
+
+    # Temperature unit safeguard (in case stored in K)
+    if np.nanmean(T_raw) > 150.0:
+        T_raw = T_raw - 273.15
+
+    # Normalize segment selection
+    if isinstance(seg_idx, str) and seg_idx.lower() == "mean":
+        if w_raw.ndim != 2 or T_raw.ndim != 2:
+            raise ValueError("seg_idx='mean' expects (nt,nseg).")
+        w_list = [np.nanmean(w_raw, axis=1)]
+        T_list = [np.nanmean(T_raw, axis=1)]
+        labels = ["mean"]
+    else:
+        idxs = np.atleast_1d(seg_idx).astype(int) if not isinstance(seg_idx, (list, tuple, np.ndarray)) else np.asarray(seg_idx, dtype=int)
+        if w_raw.ndim == 1:
+            if idxs.size != 1:
+                raise ValueError("For 1D humidity/air_temp_l, only one seg_idx makes sense.")
+            w_list = [w_raw]
+            T_list = [T_raw]
+            labels = [f"seg={int(idxs[0])}"]
+        elif w_raw.ndim == 2:
+            w_list, T_list, labels = [], [], []
+            nseg = w_raw.shape[1]
+            for i in idxs:
+                ii = i if i >= 0 else nseg + i
+                if ii < 0 or ii >= nseg:
+                    raise IndexError(f"seg_idx {i} out of bounds [0,{nseg-1}]")
+                w_list.append(w_raw[:, ii])
+                T_list.append(T_raw[:, ii])
+                labels.append(f"seg={i}")
+        else:
+            raise ValueError(f"humidity/air_temp_l must be 1D or 2D, got {w_raw.ndim}D.")
+
+    owns_fig = ax is None
+    if ax is None:
+        fig, ax = plt.subplots(figsize=(10, 7))
+    else:
+        fig = ax.figure
+
+    # --- Background (saturation line, RH lines, isotherms) ---
+    if plot_background:
+        T_bg = np.linspace(float(T_bg_min), float(T_bg_max), 260)
+        psat = _psat_buck_Pa(T_bg)
+        w_sat = _humidity_ratio_from_pv(psat, P)
+        h_sat = _moist_air_enthalpy_kJkg_da(T_bg, w_sat)
+
+        # Saturation line (100% RH)
+        ax.plot(w_sat * 1000.0, h_sat, linewidth=1.5, label="RH=100%")
+
+        # RH lines
+        for rh in rh_lines:
+            rh = float(rh)
+            if not (0.0 < rh <= 1.0):
+                continue
+            pv = rh * psat
+            w_rh = _humidity_ratio_from_pv(pv, P)
+            h_rh = _moist_air_enthalpy_kJkg_da(T_bg, w_rh)
+            ax.plot(w_rh * 1000.0, h_rh, linewidth=0.9, alpha=0.5)
+
+        # Isotherms (h(w) at fixed T)
+        if iso_Ts_C is None:
+            iso_Ts_C = [-20, -10, 0, 10, 20, 30]
+        for T0 in iso_Ts_C:
+            ps = float(_psat_buck_Pa(T0))
+            w0 = float(_humidity_ratio_from_pv(ps, P))
+            w_line = np.linspace(0.0, max(w0, 1e-6), 120)
+            h_line = _moist_air_enthalpy_kJkg_da(float(T0), w_line)
+            ax.plot(w_line * 1000.0, h_line, linestyle="--", linewidth=0.8, alpha=0.5)
+            ax.annotate(f"{T0:.0f}°C", (w_line[0]*1000.0, h_line[0]), textcoords="offset points", xytext=(-4, 2))
+
+    # --- Paths over time (color-coded) ---
+    plot_kwargs = {}
+    if line_kwargs:
+        plot_kwargs.update(line_kwargs)
+
+    last_sc = None
+    for w_i, T_i, lab in zip(w_list, T_list, labels):
+        w_i = np.asarray(w_i, dtype=float)
+        T_i = np.asarray(T_i, dtype=float)
+        h_i = _moist_air_enthalpy_kJkg_da(T_i, w_i)
+
+        x = w_i * 1000.0  # g/kg_da
+        y = h_i           # kJ/kg_da
+
+        # Line (state path)
+        ax.plot(x, y, label=lab, **plot_kwargs)
+
+        # Time-coded points
+        last_sc = ax.scatter(x, y, c=t, s=s_scatter, marker=marker if marker else "o")
+        # Mark start/end
+        if len(t) >= 2:
+            ax.annotate("start", (x[0], y[0]), textcoords="offset points", xytext=(6, 6))
+            ax.annotate("end",   (x[-1], y[-1]), textcoords="offset points", xytext=(6, 6))
+
+    if last_sc is not None:
+        cbar = fig.colorbar(last_sc, ax=ax)
+        cbar.set_label("t [s]")
+
+    ax.set_xlabel("x = w [g/kg$_{da}$]")
+    ax.set_ylabel("h [kJ/kg$_{da}$]")
+    ax.grid(True, alpha=0.3)
+    ax.legend()
+    ax.set_title(title if title else "Mollier (h-x): Luftzustand über Zeit")
+
+    fig.tight_layout()
+    if save_path:
+        fig.savefig(save_path, dpi=600, bbox_inches="tight")
+    if show and owns_fig:
+        plt.show()
+
+    return fig, ax

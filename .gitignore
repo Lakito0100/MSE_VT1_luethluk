@@ -4,3 +4,18 @@ Examples/Example_Case_2 (F1)/results_case_2.jsonl
 Examples/Example_Case_2 (F1)/results_case_2.csv
 Examples/Example_Case_1 (F0)/results_case_1.jsonl
 Examples/Example_Case_1 (F0)/results_case_1.csv
+Examples/sim_grid_log.jsonl
+Examples/run_test/results_test.csv
+Examples/run_test/results_test.jsonl
+Examples/run_test/results_test.csv
+Examples/run_test/results_test.jsonl
+Examples/run_test/results_test.csv
+Examples/run_test/results_test.jsonl
+results_test.csv
+results_test.jsonl
+results_test.jsonl
+results_test.csv
+results_test.csv
+results_test.jsonl
+*.jsonl
+*.csv
