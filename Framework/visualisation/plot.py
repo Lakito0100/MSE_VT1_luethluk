@@ -492,13 +492,32 @@ def plot_segment_field_grid(
     title: str | None = None,
     cmap: str = "viridis",
     show: bool = True,
-    colorbar: bool = True
+    colorbar: bool = True,
+    field_label: str | None = None,
+
+    save_path: str | None = None,
+    dpi: int = 600,
+
+    show_ref_path: bool = False,
+    geom=None,
+    path_variant: str | None = None,
+    path: list[tuple[int, int]] | None = None,
+    path_color: str = "w",
+    path_lw: float = 2.0,
+    path_alpha: float = 0.9,
+    path_marker: bool = False,
+    path_marker_every: int = 1,
+    mark_in_out: bool = True,
 ):
     """
     Plot a field over all segments as a 2D map (ix vs. iy).
 
     ix: segments in air-flow direction (0..n_seg_l-1)
     iy: segments in refrigerant direction (0..n_seg_r-1)
+
+      - save_path: save figure to file if not None
+      - show_ref_path: overlay refrigerant connection path
+      - geom/path_variant/path: choose how to obtain the path
     """
     t_sel, Z = extract_segment_field_grid(
         grid_snapshots,
@@ -518,8 +537,8 @@ def plot_segment_field_grid(
         cmap=cmap
     )
 
-    ax.set_xlabel("ix (Luftflussrichtung)")
-    ax.set_ylabel("iy (Reihen)")
+    ax.set_xlabel("il (Luftflussrichtung)")
+    ax.set_ylabel("ir (Reihen)")
 
     if title is None:
         ax.set_title(f"{field} bei t = {t_sel:.1f} s")
@@ -531,7 +550,62 @@ def plot_segment_field_grid(
 
     if colorbar:
         cbar = fig.colorbar(im, ax=ax)
-        cbar.set_label(field)
+        cbar.set_label(field_label)
+
+    # -------- NEW: overlay refrigerant path --------
+    if show_ref_path:
+        # Pfad bestimmen: entweder direkt übergeben oder aus geom ableiten
+        if path is None:
+            if geom is None or not hasattr(geom, "build_connection_path"):
+                raise ValueError("show_ref_path=True requires either `path=...` or `geom` with build_connection_path().")
+            # Default: wenn nicht gesetzt, versuche geom.CP, sonst 'serpentine'
+            variant = path_variant if path_variant is not None else getattr(geom, "CP", "serpentine")
+            path = geom.build_connection_path(variant=variant)
+
+        # Validierung + Clipping (falls mal etwas out-of-range wäre)
+        pts = np.asarray(path, dtype=int)
+        if pts.ndim != 2 or pts.shape[1] != 2:
+            raise ValueError(f"`path` must be a list of (ix,iy), got shape {pts.shape}.")
+
+        ix = np.clip(pts[:, 0], 0, n_x - 1).astype(float)
+        iy = np.clip(pts[:, 1], 0, n_y - 1).astype(float)
+
+        # Linie auf Segmentzentren
+        ax.plot(ix, iy, color="white", lw=path_lw + 2.0, alpha=0.95, zorder=5)
+        ax.plot(ix, iy, color="black", lw=path_lw, alpha=0.95, zorder=6)
+
+        if path_marker:
+            sel = np.arange(0, len(ix), max(int(path_marker_every), 1))
+
+            # Marker ebenfalls als Halo
+            ax.scatter(ix[sel], iy[sel], s=18, color="white", alpha=0.95, zorder=6)
+            ax.scatter(ix[sel], iy[sel], s=10, color="black", alpha=0.95, zorder=7)
+
+        if mark_in_out and len(ix) >= 2:
+            # Inlet: Kreis
+            ax.scatter(ix[0], iy[0], s=85, marker="o", facecolors="white",
+                       edgecolors="white", linewidths=3.0, zorder=8)
+            ax.scatter(ix[0], iy[0], s=85, marker="o", facecolors="none",
+                       edgecolors="black", linewidths=1.8, zorder=9)
+
+            # Outlet: Kreuz
+            ax.scatter(ix[-1], iy[-1], s=95, marker="x", color="white",
+                       linewidths=3.0, zorder=8)
+            ax.scatter(ix[-1], iy[-1], s=95, marker="x", color="black",
+                       linewidths=1.8, zorder=9)
+
+            txt_bbox = dict(boxstyle="round,pad=0.15", facecolor="white", edgecolor="none", alpha=0.85)
+
+            ax.annotate("in", (ix[0], iy[0]), textcoords="offset points", xytext=(8, -4),
+                        color="black", fontsize=10, weight="normal", zorder=11, bbox=txt_bbox)
+
+            ax.annotate("out", (ix[-1], iy[-1]), textcoords="offset points", xytext=(8, -4),
+                        color="black", fontsize=10, weight="normal", zorder=11, bbox=txt_bbox)
+
+    fig.tight_layout()
+
+    if save_path:
+        fig.savefig(save_path, dpi=dpi, bbox_inches="tight")
 
     if show:
         plt.show()
