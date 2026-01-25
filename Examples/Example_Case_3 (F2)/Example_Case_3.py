@@ -152,7 +152,7 @@ HP = HeatPump(
 # print(f"Surface area Condenser = {HP.A_plate:.2f} m2")
 
 
-result_file = "results_case_2"
+result_file = "results_case_3"
 
 if sim_run:
     sim = Simulator(geom,cfg,HP,result_file)
