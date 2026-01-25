@@ -5,8 +5,174 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="1aa9b13d-3374-430b-a06b-497fdb6d1a1b" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Simulation time.png" beforeDir="false" afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Simulation_time.png" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/Examples/Example_Case_3 (F2)/Example_Case_3.py" beforeDir="false" afterPath="$PROJECT_DIR$/Examples/Example_Case_3 (F2)/Example_Case_3.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/.gitignore" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/.name" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/Test_V01.iml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/inspectionProfiles/profiles_settings.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/misc.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/modules.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/.idea/vcs.xml" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Example_Case_1.ipynb" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Example_Case_1.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/A_evap.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/COP.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/EER.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/P_ref_cond.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/P_ref_evap.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/Q_evap.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/T_evaporation.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/T_out_air.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/T_out_ref_evap.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/T_out_water.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/h_eff_mean.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/humidity.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/logph_at_t.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/logph_t_vec.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/m_dot_air.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/m_dot_ref.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/mean_frost.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/mollier_seg_0.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/mollier_seg_1.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/segment_RH.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/segment_T_a.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/segment_T_ref.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/segment_T_tube.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/segment_h_ref.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/segment_p_ref.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/segment_s_ft.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/segment_velocity.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/segment_w_amb.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/segment_x_ref.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/superheating.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/time_step.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/v_in_air.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Plots/valve_pos.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/Simulation_time.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_1 (F0)/results_case_1.csv" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Comparison_to_Hermes.ipynb" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Example_Case_2.ipynb" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Example_Case_2.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/A_evap.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/COP.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/EER.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/P_ref_cond.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/P_ref_evap.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/Q_evap.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/T_evaporation.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/T_out_air.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/T_out_ref_evap.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/T_out_water.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/h_eff_mean.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/humidity.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/logph_at_t.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/logph_t_vec.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/m_dot_air.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/m_dot_ref.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/mean_frost.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/mean_frost_vs_hermes.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/mollier_seg_0.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/mollier_seg_1.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/segment_RH.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/segment_T_a.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/segment_T_ref.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/segment_T_tube.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/segment_h_ref.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/segment_p_ref.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/segment_s_ft.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/segment_velocity.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/segment_w_amb.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/segment_x_ref.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/superheating.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/time_step.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/v_in_air.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Plots/valve_pos.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/Simulation_time.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_2 (F1)/results_case_2.csv" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_3 (F2)/Example_Case_3.ipynb" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_3 (F2)/Example_Case_3.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_3 (F2)/Simulation_time.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Framework/core/config.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Framework/core/corrolations.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Framework/core/geometry.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Framework/models/Frostmodell_Hermes_2012.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Framework/models/Frostmodell_V1.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Framework/models/air_modell.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Framework/models/derivatives_of_rho.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Framework/models/refrigerant_modell_V2.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Framework/runtime/dynamic_models.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Framework/runtime/initializer.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Framework/runtime/recorder.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Framework/runtime/simulator_V2.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Framework/runtime/state.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Framework/visualisation/plot.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test.ipynb" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/Plots/COP.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/Plots/EER.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/Plots/P_ref_cond.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/Plots/P_ref_evap.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/Plots/T_evaporation.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/Plots/T_out_air.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/Plots/T_out_ref_evap.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/Plots/humidity.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/Plots/logph_at_t.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/Plots/logph_t_vec.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/Plots/m_dot_air.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/Plots/m_dot_ref.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/Plots/mean_frost.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/Plots/mollier_seg_0.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/Plots/mollier_seg_1.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/Plots/superheating.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/Plots/time_step.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/Plots/v_in_air.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/Plots/valve_pos.png" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/run_test_with_HP.ipynb" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test/run_test_with_HP.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Examples/run_test_edge_domain.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V1/core/config.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V1/core/corrolations.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V1/core/geometry.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V1/models/frost_test.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V1/runtime/recorder.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V1/runtime/simulator.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V1/runtime/state.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V1/visualisation/plot.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V2/core/config.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V2/core/corrolations.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V2/core/geometry.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V2/models/Frostmodell_V1.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V2/models/frost_test.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V2/runtime/initializer.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V2/runtime/recorder.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V2/runtime/simulator.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V2/runtime/state.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V2/visualisation/plot.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V3/core/config.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V3/core/corrolations.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V3/core/geometry.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V3/models/Frostmodell_V1.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V3/models/Legacy_functions.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V3/models/air_modell.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V3/models/frost_test.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V3/models/refrigerant_modell.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V3/runtime/dynamic_models.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V3/runtime/initializer.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V3/runtime/recorder.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V3/runtime/simulator.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V3/runtime/state.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V3/visualisation/plot.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Framework_V3/visualisation/read_from_csv.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/Frostmodelle/Frostmodell_Cheikh_Jacobi_2014.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/math_aid/reform_energy_equation.ipynb" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/math_aid/reform_energy_equation_without_d_keff.ipynb" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/math_aid/reform_mass_equation.ipynb" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/math_aid/reform_mass_equation_without_d_Deff.ipynb" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/models/refrigerant_modell_V1.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/Legacy/runtime/simulator_V1.py" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
+      <change afterPath="$PROJECT_DIR$/runtime.txt" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.gitignore" beforeDir="false" afterPath="$PROJECT_DIR$/.gitignore" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -51,39 +217,39 @@
     <option name="hideEmptyMiddlePackages" value="true" />
     <option name="showLibraryContents" value="true" />
   </component>
-  <component name="PropertiesComponent">{
-  &quot;keyToString&quot;: {
-    &quot;Python.Example_Case_2.executor&quot;: &quot;Run&quot;,
-    &quot;Python.Frostmodell_Hermes_2012.executor&quot;: &quot;Run&quot;,
-    &quot;Python.Frostmodell_Hermes_2012_V1.executor&quot;: &quot;Run&quot;,
-    &quot;Python.Frostmodell_Hermes_2012_V2.executor&quot;: &quot;Run&quot;,
-    &quot;Python.Frostmodell_Hermes_2012_V3.executor&quot;: &quot;Run&quot;,
-    &quot;Python.Test1.executor&quot;: &quot;Run&quot;,
-    &quot;Python.run_test.executor&quot;: &quot;Run&quot;,
-    &quot;Python.run_test_edge_domain.executor&quot;: &quot;Run&quot;,
-    &quot;Python.run_test_with_HP.executor&quot;: &quot;Run&quot;,
-    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
-    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
-    &quot;ai.playground.ignore.import.keys.banner.in.settings&quot;: &quot;true&quot;,
-    &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultAutoModeForALLUsers.v1&quot;: &quot;true&quot;,
-    &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1&quot;: &quot;true&quot;,
-    &quot;git-widget-placeholder&quot;: &quot;working&quot;,
-    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
-    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
-    &quot;last_opened_file_path&quot;: &quot;C:/Users/lukas/OneDrive/Dokumente/GitHub/MSE_VT1_luethluk/Examples/Example_Case_3 (F2)&quot;,
-    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
-    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
-    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
-    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
-    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
-    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;,
-    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
-    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "Python.Example_Case_2.executor": "Run",
+    "Python.Frostmodell_Hermes_2012.executor": "Run",
+    "Python.Frostmodell_Hermes_2012_V1.executor": "Run",
+    "Python.Frostmodell_Hermes_2012_V2.executor": "Run",
+    "Python.Frostmodell_Hermes_2012_V3.executor": "Run",
+    "Python.Test1.executor": "Run",
+    "Python.run_test.executor": "Run",
+    "Python.run_test_edge_domain.executor": "Run",
+    "Python.run_test_with_HP.executor": "Run",
+    "RunOnceActivity.MCP Project settings loaded": "true",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "RunOnceActivity.typescript.service.memoryLimit.init": "true",
+    "ai.playground.ignore.import.keys.banner.in.settings": "true",
+    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultAutoModeForALLUsers.v1": "true",
+    "com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1": "true",
+    "git-widget-placeholder": "Merging working",
+    "ignore.virus.scanning.warn.message": "true",
+    "junie.onboarding.icon.badge.shown": "true",
+    "last_opened_file_path": "C:/Users/lukas/OneDrive/Dokumente/GitHub/MSE_VT1_luethluk/Examples/Example_Case_3 (F2)",
+    "node.js.detected.package.eslint": "true",
+    "node.js.detected.package.tslint": "true",
+    "node.js.selected.package.eslint": "(autodetect)",
+    "node.js.selected.package.tslint": "(autodetect)",
+    "nodejs_package_manager_path": "npm",
+    "settings.editor.selected.configurable": "com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable",
+    "to.speed.mode.migration.done": "true",
+    "vue.rearranger.settings.migration": "true"
   }
-}</component>
+}]]></component>
   <component name="RecentsManager">
     <key name="CopyFile.RECENT_KEYS">
       <recent name="C:\Users\lukas\OneDrive\Dokumente\GitHub\MSE_VT1_luethluk\Examples\Example_Case_3 (F2)" />
@@ -100,7 +266,7 @@
       <recent name="C:\Users\lukas\OneDrive\Dokumente\GitHub\MSE_VT1_luethluk\Legacy\runtime" />
     </key>
   </component>
-  <component name="RunManager">
+  <component name="RunManager" selected="Python.run_test_with_HP">
     <configuration name="run_test" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
       <module name="Test_V01" />
       <option name="ENV_FILES" value="" />
@@ -365,6 +531,7 @@
       <workItem from="1769343761821" duration="2942000" />
       <workItem from="1769353821019" duration="284000" />
       <workItem from="1769354221341" duration="9329000" />
+      <workItem from="1769372277964" duration="77000" />
     </task>
     <servers />
   </component>
