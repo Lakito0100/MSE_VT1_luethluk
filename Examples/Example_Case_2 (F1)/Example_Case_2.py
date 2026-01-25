@@ -16,7 +16,7 @@ read_data = False
 plots = False
 
 #air
-T_a = 5.0
+T_a = 0.0
 P = 101325
 RH = 0.0
 v_a = 1.2
@@ -41,9 +41,9 @@ h_ref_cond = PropsSI("H", "T", T_in_water + 273.15, "Q", x_cond, refrigerant)
 
 geom = FinnTubedHX(
     n_seg_l = 2,        # -
-    n_seg_r = 40,        # -
+    n_seg_r = 20,        # -
     stacks = 20,         # -
-    n_fin = 5,           # -
+    n_fin = 10,           # -
     l_fin = 0.05,          # m
     h_fin = 0.05,          # m
     fin_thickness = 0.0002,    # m
@@ -57,7 +57,7 @@ geom = FinnTubedHX(
 )
 
 gs = GridShape(
-    t_end = 10*60.0,      # s endtime
+    t_end = 60*60.0,      # s endtime
     dt = 0.1,           # s time step
     print_output_every_x_it = 20,
     store_grid_every_x_it = 100,
