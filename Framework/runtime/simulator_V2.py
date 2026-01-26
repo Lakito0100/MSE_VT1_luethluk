@@ -46,7 +46,6 @@ class Simulator:
     def run(self, cfg, geom, gs, model):
         """Run the transient simulation over the configured time horizon."""
         input_cfg = copy.deepcopy(cfg)
-        #input_cfg.fan_master = True
         cfg_grid, st_grid = build_segment_grids(base_cfg=cfg, geom=geom, gs=gs)
         n_x = len(cfg_grid)
         n_y = len(cfg_grid[0])
@@ -268,7 +267,7 @@ class Simulator:
 
 
 
-            # Pushing the data ---------------------------------------------------------------------------------------------
+            # Push the data
             path_ref = geom.build_connection_path(geom.CP)
             pos_of = {seg: k for k, seg in enumerate(path_ref)}
             (x0, y0) = path_ref[0]
@@ -278,15 +277,9 @@ class Simulator:
             # --- Inlet/Outlet ---
             T_inlet_air_mean = np.mean([cfg_grid[0][iy].T_a for iy in range(n_y)])
             T_outlet_air_mean = np.mean([cfg_grid[-1][iy].T_a for iy in range(n_y)])
-            #
-            ## --- Massflow air one row ---
-            #m_dot_dry_y = cfg.m_dot / n_y
-            #
-            ## --- Refrigerant In/Out ---
-            #T_ref_in = cfg_grid[x0][y0].T_ref
             T_ref_out = cfg_grid[x_end][y_end].T_ref
 
-            #Calculating the COP
+            # Calculate the COP
             W_comp = self.HP.W_comp
             Q_cond = self.HP.Q_cond
             Q_evap = self.HP.Q_evap
@@ -397,10 +390,7 @@ class Simulator:
             if gs.change_humidity:
                 input_cfg.w_amb = dynamic_models.w_amb_profile(t,input_cfg.T_a,input_cfg.p_a,0.0,0.8,5*60.0,20.0)
 
-            #if t >= 4*60.0:
-            #    gs.cal_frost = True
-
-        # Updating the refrigerant state -------------------------------------------------------------------------------
+        # Updating the refrigerant state
 
             dt_step_n = gs.dt
 
@@ -417,9 +407,7 @@ class Simulator:
                     dt=dt_step_n,
                 )
 
-                # Adaptiv time step:
-                # parameters
-                #if max_rh_wall_step  > 0.8 and not any_frost_condition_step:
+                # Adaptive time step parameters
                 if 5*60.0 - 10 <= t <= 5*60.0 + 10:
                     gs.dt = max(dt_start, gs.dt * 0.5)
                 else:
