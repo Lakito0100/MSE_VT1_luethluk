@@ -554,15 +554,15 @@ def plot_segment_field_grid(
 
     # -------- NEW: overlay refrigerant path --------
     if show_ref_path:
-        # Pfad bestimmen: entweder direkt übergeben oder aus geom ableiten
+        # Determine the path: use provided path or derive from geom
         if path is None:
             if geom is None or not hasattr(geom, "build_connection_path"):
                 raise ValueError("show_ref_path=True requires either `path=...` or `geom` with build_connection_path().")
-            # Default: wenn nicht gesetzt, versuche geom.CP, sonst 'serpentine'
+            # Default: if unset, try geom.CP, otherwise "serpentine"
             variant = path_variant if path_variant is not None else getattr(geom, "CP", "serpentine")
             path = geom.build_connection_path(variant=variant)
 
-        # Validierung + Clipping (falls mal etwas out-of-range wäre)
+        # Validate + clip (in case something is out of range)
         pts = np.asarray(path, dtype=int)
         if pts.ndim != 2 or pts.shape[1] != 2:
             raise ValueError(f"`path` must be a list of (ix,iy), got shape {pts.shape}.")
@@ -570,25 +570,25 @@ def plot_segment_field_grid(
         ix = np.clip(pts[:, 0], 0, n_x - 1).astype(float)
         iy = np.clip(pts[:, 1], 0, n_y - 1).astype(float)
 
-        # Linie auf Segmentzentren
+        # Line through segment centers
         ax.plot(ix, iy, color="white", lw=path_lw + 2.0, alpha=0.95, zorder=5)
         ax.plot(ix, iy, color="black", lw=path_lw, alpha=0.95, zorder=6)
 
         if path_marker:
             sel = np.arange(0, len(ix), max(int(path_marker_every), 1))
 
-            # Marker ebenfalls als Halo
+            # Markers with a halo
             ax.scatter(ix[sel], iy[sel], s=18, color="white", alpha=0.95, zorder=6)
             ax.scatter(ix[sel], iy[sel], s=10, color="black", alpha=0.95, zorder=7)
 
         if mark_in_out and len(ix) >= 2:
-            # Inlet: Kreis
+            # Inlet: circle
             ax.scatter(ix[0], iy[0], s=85, marker="o", facecolors="white",
                        edgecolors="white", linewidths=3.0, zorder=8)
             ax.scatter(ix[0], iy[0], s=85, marker="o", facecolors="none",
                        edgecolors="black", linewidths=1.8, zorder=9)
 
-            # Outlet: Kreuz
+            # Outlet: cross
             ax.scatter(ix[-1], iy[-1], s=95, marker="x", color="white",
                        linewidths=3.0, zorder=8)
             ax.scatter(ix[-1], iy[-1], s=95, marker="x", color="black",
@@ -722,7 +722,7 @@ def plot_logph_cycles(
     # Isotherms + grid
     isotherms: bool = True,
     iso_Ts_C=None,                # e.g. [-10, 0, 10, 20, 30, 40]
-    n_iso: int = 10,               # falls iso_Ts_C None
+    n_iso: int = 10,               # used when iso_Ts_C is None
     iso_style: str = "--",
     iso_lw: float = 1.0,
     iso_alpha: float = 0.45,
@@ -746,8 +746,8 @@ def plot_logph_cycles(
 
     def _label_angle(ax, x, y, i, clamp=80):
         """
-        Winkel der Kurve in Bildschirmkoordinaten, normalisiert auf [-90, 90]
-        und optional auf +/- clamp begrenzt.
+        Curve angle in screen coordinates, normalized to [-90, 90],
+        with optional clamping to +/- clamp.
         """
         i0 = max(i - 1, 0)
         i1 = min(i + 1, len(x) - 1)
@@ -858,20 +858,20 @@ def plot_logph_cycles(
             Ts_C = list(iso_Ts_C)
 
         iso_lines = _compute_isotherms_ph(ref, pmin_pa, pmax_pa, Ts_C, nP=90)
-        # --- Label-Position als fester Druck in der log-Skala (0..1) ---
-        iso_label_pfrac = 0.05  # 0.75 => eher oben; 0.65..0.85 je nach Geschmack
-        iso_label_every = 2  # z.B. 2 => nur jede zweite Isotherme beschriften
+        # --- Label position as fixed pressure in log scale (0..1) ---
+        iso_label_pfrac = 0.05  # 0.75 => higher placement; adjust as needed
+        iso_label_every = 2  # label every nth isotherm
 
-        # Optional: leicht lesbarer Label-Hintergrund
+        # Optional: readable label background
         label_bbox = dict(boxstyle="round,pad=0.15", facecolor="white", edgecolor="none", alpha=0.6)
 
-        # Ziel-Druck (in Pa) entlang log(p) zwischen pmin_pa und pmax_pa
+        # Target pressure (in Pa) along log(p) between pmin_pa and pmax_pa
         p_label_pa = 10.0 ** (
                 np.log10(pmin_pa) + iso_label_pfrac * (np.log10(pmax_pa) - np.log10(pmin_pa))
         )
 
         arrow_kw = dict(arrowstyle="-", lw=0.8, color=iso_c, alpha=0.9)
-        text_pe = [pe.withStroke(linewidth=3, foreground="white")]  # weißer Rand um Text
+        text_pe = [pe.withStroke(linewidth=3, foreground="white")]  # white stroke around text
 
         axis_fontsize = 14
         label_fontsize = 11
@@ -880,7 +880,7 @@ def plot_logph_cycles(
 
         for j, (T_C, h_vap, p_vap, h_liq, p_liq) in enumerate(iso_lines):
 
-            # Stagger gegen Überlappung (Offset in Punkten)
+            # Stagger to avoid overlap (offset in points)
             dy = 9 + (j % 4) * 9  # 2, 9, 16, 23 pt
             dxR, dxL = -4, -4
 
@@ -895,16 +895,16 @@ def plot_logph_cycles(
                     pv, hv = pv[m], hv[m]
 
                     if pv.size:
-                        # Index nahe Ziel-Druck (in log-Skala)
+                        # Index near target pressure (in log scale)
                         iR = int(np.nanargmin(np.abs(np.log(pv) - np.log(p_label_pa))))
 
                         xR = hv[iR] / 1000.0
                         yR = pv[iR] / 1e5
 
-                        # optional: kleinen Marker auf die Kurve setzen
+                        # optional: place a small marker on the curve
                         ax.plot([xR], [yR], marker="o", markersize=2.5, color=iso_c, alpha=0.9)
 
-                        rotR = 0 #_label_angle(ax, hv / 1000.0, pv / 1e5, iR)  # optional
+                        rotR = 0
 
                         ax.annotate(f"{T_C:.0f}°C",
                                     xy=(xR, yR),
@@ -949,7 +949,7 @@ def plot_logph_cycles(
                                     clip_on=True)
 
     # Cycle(s)
-    label_cycle_idx = int(idxs[-1])  # Punktzahlen 1..4 nur beim letzten geplotteten Zyklus anzeigen
+    label_cycle_idx = int(idxs[-1])  # Show point labels 1..4 only on the last plotted cycle
 
     for i in idxs:
         ph = cycle_ph[i]
@@ -961,7 +961,7 @@ def plot_logph_cycles(
 
         ax.plot(h_plot, p_plot, marker="o", label=f"t={t[i]:g} s")
 
-        # Punkt-Labels nur einmal zeichnen
+        # Draw point labels only once
         if int(i) == label_cycle_idx:
             for k in range(4):
                 ax.annotate(str(k + 1),

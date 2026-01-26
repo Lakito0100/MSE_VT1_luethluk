@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 from CoolProp.HumidAirProp import HAPropsSI
 from CoolProp.CoolProp import PropsSI
 
-# ----------------- Basisdaten -----------------
+# ----------------- Base data -----------------
 
 @dataclass(frozen=True)
 class Flatplate:
@@ -37,7 +37,7 @@ class HermesParams:
     i_sv: float
     beta: float
 
-# -------------- Modellimplementation ---------------
+# -------------- Model implementation ---------------
 
 def T_tilde(op: OpPoint, hp: HermesParams) -> float:
     return hp.a1 * (op.T_a - op.T_w)
@@ -65,7 +65,7 @@ def X_of_s(s: float, geom: Flatplate, air: AirProperty, op: OpPoint, hp: HermesP
 def frost_state_at_s(s: float, geom: Flatplate, air: AirProperty, op: OpPoint, hp: HermesParams,
                      Ts0: float | None = None, tol: float = 1e-6, itmax: int = 1000):
 
-    # initial guess: weighted between Ta and Tw
+    # Initial guess: weighted between Ta and Tw
     Ts = Ts0 if Ts0 is not None else (0.5*op.T_a + 0.5*op.T_w)
 
     Nu_val = Nu(geom, air, op)
@@ -96,24 +96,24 @@ def Ts_of_s(s: float, geom: Flatplate, air: AirProperty, op: OpPoint, hp: Hermes
     Ts, *_ = frost_state_at_s(s, geom, air, op, hp)
     return Ts
 
-# -------------- Kurven berechnen & plotten ---------------
+# -------------- Compute curves and plot ---------------
 
 if __name__ == "__main__":
 
-    # Randbedingungen
-    T_a = 0.0      # °C Lufttemperatur
-    T_w = -8.75      # °C Wandtemperatur
-    RH  = 0.8       # Relative Luftfeuchtigkeit
-    u_a = 1.45       # m/s
+    # Boundary conditions
+    T_a = 0.0      # °C air temperature
+    T_w = -8.75    # °C wall temperature
+    RH  = 0.8      # relative humidity
+    u_a = 1.45     # m/s
     p = 101325      # Pa
 
-    # Feuchte-Luft
+    # Humid air
     w_w = HAPropsSI("W", "T", T_w+273.15, "P", p, "R", 1.0)
     w_a = HAPropsSI("W", "T", T_a+273.15, "P", p, "R", RH)
     w_tilde = w_a - w_w
     op = OpPoint(T_a=T_a, T_w=T_w, w_tilde=w_tilde, u_a=u_a)
 
-    # Hermes-Parameter
+    # Hermes parameters
     a0   = 207.3
     a1   = 0.266
     k_f0 = 0.132     # W/mK
@@ -122,7 +122,7 @@ if __name__ == "__main__":
     hp = HermesParams(a0=a0, a1=a1, a2=(-0.0615)*(T_w),
                       k_f0=k_f0, i_sv=i_sv, beta=beta)
 
-    # Geometrie & Luft
+    # Geometry and air
     geom = Flatplate(L=0.1)
     k_feucht = HAPropsSI('K', 'T', T_a+273.15, 'P', p, 'R', RH)
     c_p_feucht = HAPropsSI('cp', 'T', T_a+273.15, 'P', p, 'R', RH)
@@ -130,16 +130,16 @@ if __name__ == "__main__":
     mu = HAPropsSI('M', 'T', T_a+273.15, 'P', p, 'R', RH)
     air  = AirProperty(k_a=k_feucht, c_p=c_p_feucht, rho=rho, mu=mu)
 
-    # Zielzeit (real)
+    # Target time (real)
     t_end = 60.0  # min
 
-    # Dimensionslose Zeit definieren
+    # Define dimensionless time
     s0 = 1e-8
     s_end = 6
     N = 10000
     s_array = np.linspace(1e-9, s_end, N)
 
-    # Zustände entlang s
+    # States along s
     results = [frost_state_at_s(s, geom, air, op, hp) for s in s_array]
     Ts, rho_f, k_f, Bi, theta = map(np.asarray, zip(*results))
     X = np.array([X_of_s(s, geom, air, op, hp) for s in s_array])
@@ -152,7 +152,6 @@ if __name__ == "__main__":
     t_array = np.array(t_array)
 
     # Plots
-
     rech = (theta/(1 + theta)) * (s_array / X)
     plt.plot(X, rech, label=f"Tw = {T_w:.0f}°C")
     plt.xlabel("X [-]")
@@ -191,12 +190,10 @@ if __name__ == "__main__":
     plt.xlabel("Zeit [min]"); plt.ylabel("Frost Wärmeleitfähigkeit [W/mK]")
     plt.title("Hermes (2012)")
     plt.xlim([0, t_end])
-    #plt.ylim([0, 5])
     plt.grid(True); plt.legend(); plt.tight_layout(); plt.show()
 
     plt.plot(t_array/60, Bi, label=f"Tw = {T_w:.0f}°C")
     plt.xlabel("Zeit [min]"); plt.ylabel("Biotzahl [-]")
     plt.title("Hermes (2012)")
     plt.xlim([0, t_end])
-    #plt.ylim([0, 5])
     plt.grid(True); plt.legend(); plt.tight_layout(); plt.show()
