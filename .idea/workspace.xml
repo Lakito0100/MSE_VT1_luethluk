@@ -4,7 +4,11 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="1aa9b13d-3374-430b-a06b-497fdb6d1a1b" name="Changes" comment="" />
+    <list default="true" id="1aa9b13d-3374-430b-a06b-497fdb6d1a1b" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_3 (F2)/results_case_3.csv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Examples/Example_Case_3 (F2)/Example_Case_3.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/Examples/Example_Case_3 (F2)/Example_Case_3.ipynb" afterDir="false" />
+    </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -148,8 +152,8 @@
       <method v="2" />
     </configuration>
     <list>
-      <item itemvalue="Python.run_test" />
       <item itemvalue="Python.run_test_with_HP" />
+      <item itemvalue="Python.run_test" />
     </list>
     <recent_temporary>
       <list>
@@ -365,6 +369,7 @@
       <workItem from="1769372277964" duration="77000" />
       <workItem from="1769372414644" duration="34000" />
       <workItem from="1769372594177" duration="12000" />
+      <workItem from="1769414712758" duration="497000" />
     </task>
     <servers />
   </component>
