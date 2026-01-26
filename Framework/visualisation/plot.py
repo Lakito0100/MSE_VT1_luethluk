@@ -729,7 +729,7 @@ def plot_logph_cycles(
     iso_labels: bool = True,
     grid: str = "dashed",         # "none" | "dashed" | "light"
 
-    # ---- NEW: Auto-scaling without changing the call site ----
+    # ---- Auto-scaling without changing the call site ----
     figsize=None,                 # None => automatic (larger default)
     xlim=None,                    # (xmin, xmax) in kJ/kg; None => automatic
     ylim=None,                    # (ymin, ymax) in bar;   None => automatic
