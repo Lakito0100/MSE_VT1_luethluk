@@ -126,7 +126,7 @@ class Refrigerant:
         h = np.clip(h, self._H_min, self._H_max)
 
         if self._T_interp is None:
-            # PropsSI kann Arrays; P muss gleich lang sein
+            # PropsSI can handle arrays; P must match h length
             P_arr = np.full_like(h, P, dtype=float)
             return PropsSI("T", "P", P_arr, "H", h, self.fluid).astype(float)
 
@@ -175,8 +175,8 @@ class Refrigerant:
         u_min = 0.0  # [%]
         u_max = 100.0  # [%]
         u0 = 20.0  # [%] bias / initial opening
-        du_max_per_s = 1.0 # [%/s]
-        T_sample = 0.2 # [s] Sample time for controller
+        du_max_per_s = 1.0  # [%/s]
+        T_sample = 0.2  # [s] sample time for controller
 
         if not HP.use_controller:
             self.valve_pos = u0
@@ -234,15 +234,11 @@ class Refrigerant:
 
         self._SH_filt = (1 - alpha) * self._SH_filt + alpha * SH
         SH_used = self._SH_filt
-        #print(f"SH_used: {SH_used}")
 
         # -----------------------------
         # PI control law with simple anti-windup
         # -----------------------------
         e = SH_used - SH_set  # positive => SH too high => open valve more
-        #print(f"Error in controller: {e}")
-        #if abs(e) < 0.1:  # [K] Deadband
-        #    e = 0.0
 
         I_old = float(self._valve_I)
 
@@ -282,7 +278,6 @@ class Refrigerant:
         Kv = 0.25
 
         try:
-            #rho = PropsSI("D", "P", pi, "H", hi, self.fluid)
             rho, _, _ = self.rho_and_derivs_vec(pi, hi)
         except Exception:
             return 0.0, hi
@@ -316,12 +311,8 @@ class Refrigerant:
 
         TTSE.update(HmassP_INPUTS, hi, pi)
         s = TTSE.smass()
-        # s = PropsSI("S", "P", pi, "H", hi, self.fluid)
         TTSE.update(PSmass_INPUTS, po, s)
         h_is = TTSE.hmass()
-        # h_is = PropsSI('H', 'P', po, 'S', s, self.fluid)
-        #h_is = h_is.reshape(po.shape)
-        # rho = PropsSI("D", "P", pi, "H", hi, self.fluid)
         rho, _, _ = self.rho_and_derivs_vec(pi, hi)
 
         ho = hi + (h_is - hi) / eta_is
@@ -395,8 +386,6 @@ class Refrigerant:
              row_s = np.arange(2 * N_condenser + 1, 3 * N_condenser + 1)
              col_s = np.arange(2 * N_condenser + 1, 3 * N_condenser + 1)
              A_mat[row_s, col_s] = M_water * HP.c_water
-             #b_vec[row_s[:-1]] = m_water * HP.c_water * (T[1:] - T[:-1]) + Q_wall_water[:-1]
-             #b_vec[row_s[-1]] = m_water * HP.c_water * (T_in_water - T[-1]) + Q_wall_water[-1]
              T_prev = np.empty_like(T)
              T_prev[0] = T_in_water
              T_prev[1:] = T[:-1]
@@ -592,13 +581,6 @@ class Refrigerant:
                 or abs(float(self._bdf.t) - t0) > 1e-12
         )
 
-        # call the controller
-        P_suction_0 = float(y0[0])
-        h_suction_0 = float(y0[1 + N - 1])
-
-        #VPos_hold = float(self.valve_controller(t0, P_suction=P_suction_0, h_suction=h_suction_0))
-        #self.valve_pos = VPos_hold
-
         # Optional: restart if cfg_grid was changed externally and no longer matches solver.y
         if (not need_restart) and (np.max(np.abs(self._bdf.y - y0)) > 1e-6):
             need_restart = True
@@ -633,9 +615,6 @@ class Refrigerant:
         # End state (current state of the persistent solver)
         y_end = self._bdf.y.copy()
         cycl_t1_ref = perf_counter()
-
-        # if not sol.success:
-        #     raise RuntimeError(f"Refrigerant ODE solver failed: {sol.message}")
 
         # End state
         P_end = float(y_end[0])
