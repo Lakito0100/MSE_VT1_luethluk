@@ -1,0 +1,401 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="1aa9b13d-3374-430b-a06b-497fdb6d1a1b" name="Changes" comment="">
+      <change afterPath="$PROJECT_DIR$/Examples/Example_Case_3 (F2)/results_case_3.csv" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/Examples/Example_Case_3 (F2)/Example_Case_3.ipynb" beforeDir="false" afterPath="$PROJECT_DIR$/Examples/Example_Case_3 (F2)/Example_Case_3.ipynb" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+        <option value="Jupyter Notebook" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;Lakito0100&quot;
+  }
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/Lakito0100/MSE_VT1_luethluk.git&quot;,
+    &quot;accountId&quot;: &quot;012f86b7-6e2c-4801-904c-a522185c8786&quot;
+  }
+}</component>
+  <component name="HighlightingSettingsPerFile">
+    <setting file="file://$PROJECT_DIR$/Examples/run_test.py" root0="FORCE_HIGHLIGHTING" />
+  </component>
+  <component name="McpProjectServerCommands">
+    <commands />
+    <urls />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 7
+}</component>
+  <component name="ProjectId" id="33HL3GNeo2dpVTdEpypwhZzRDCa" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">{
+  &quot;keyToString&quot;: {
+    &quot;Python.Example_Case_2.executor&quot;: &quot;Run&quot;,
+    &quot;Python.Frostmodell_Hermes_2012.executor&quot;: &quot;Run&quot;,
+    &quot;Python.Frostmodell_Hermes_2012_V1.executor&quot;: &quot;Run&quot;,
+    &quot;Python.Frostmodell_Hermes_2012_V2.executor&quot;: &quot;Run&quot;,
+    &quot;Python.Frostmodell_Hermes_2012_V3.executor&quot;: &quot;Run&quot;,
+    &quot;Python.Test1.executor&quot;: &quot;Run&quot;,
+    &quot;Python.run_test.executor&quot;: &quot;Run&quot;,
+    &quot;Python.run_test_edge_domain.executor&quot;: &quot;Run&quot;,
+    &quot;Python.run_test_with_HP.executor&quot;: &quot;Run&quot;,
+    &quot;RunOnceActivity.MCP Project settings loaded&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.ShowReadmeOnStart&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.git.unshallow&quot;: &quot;true&quot;,
+    &quot;RunOnceActivity.typescript.service.memoryLimit.init&quot;: &quot;true&quot;,
+    &quot;ai.playground.ignore.import.keys.banner.in.settings&quot;: &quot;true&quot;,
+    &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultAutoModeForALLUsers.v1&quot;: &quot;true&quot;,
+    &quot;com.intellij.ml.llm.matterhorn.ej.ui.settings.DefaultModelSelectionForGA.v1&quot;: &quot;true&quot;,
+    &quot;git-widget-placeholder&quot;: &quot;working&quot;,
+    &quot;ignore.virus.scanning.warn.message&quot;: &quot;true&quot;,
+    &quot;junie.onboarding.icon.badge.shown&quot;: &quot;true&quot;,
+    &quot;last_opened_file_path&quot;: &quot;C:/Users/lukas/OneDrive/Dokumente/GitHub/MSE_VT1_luethluk/Examples/Example_Case_3 (F2)&quot;,
+    &quot;node.js.detected.package.eslint&quot;: &quot;true&quot;,
+    &quot;node.js.detected.package.tslint&quot;: &quot;true&quot;,
+    &quot;node.js.selected.package.eslint&quot;: &quot;(autodetect)&quot;,
+    &quot;node.js.selected.package.tslint&quot;: &quot;(autodetect)&quot;,
+    &quot;nodejs_package_manager_path&quot;: &quot;npm&quot;,
+    &quot;settings.editor.selected.configurable&quot;: &quot;com.jetbrains.python.configuration.PyActiveSdkModuleConfigurable&quot;,
+    &quot;to.speed.mode.migration.done&quot;: &quot;true&quot;,
+    &quot;vue.rearranger.settings.migration&quot;: &quot;true&quot;
+  }
+}</component>
+  <component name="RecentsManager">
+    <key name="CopyFile.RECENT_KEYS">
+      <recent name="C:\Users\lukas\OneDrive\Dokumente\GitHub\MSE_VT1_luethluk\Examples\Example_Case_3 (F2)" />
+      <recent name="C:\Users\lukas\OneDrive\Dokumente\GitHub\MSE_VT1_luethluk\Examples\Example_Case_1 (F0)" />
+      <recent name="C:\Users\lukas\OneDrive\Dokumente\GitHub\MSE_VT1_luethluk\Examples\Example_Case_2 (F1)" />
+      <recent name="C:\Users\lukas\OneDrive\Dokumente\GitHub\MSE_VT1_luethluk\Examples\Example_Case_2" />
+      <recent name="C:\Users\lukas\OneDrive\Dokumente\GitHub\MSE_VT1_luethluk\Examples\run_test_3" />
+    </key>
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="C:\Users\lukas\OneDrive\Dokumente\GitHub\MSE_VT1_luethluk\Framework\models" />
+      <recent name="C:\Users\lukas\OneDrive\Dokumente\GitHub\MSE_VT1_luethluk\Examples" />
+      <recent name="C:\Users\lukas\OneDrive\Dokumente\GitHub\MSE_VT1_luethluk\Legacy\Examples" />
+      <recent name="C:\Users\lukas\OneDrive\Dokumente\GitHub\MSE_VT1_luethluk\Legacy" />
+      <recent name="C:\Users\lukas\OneDrive\Dokumente\GitHub\MSE_VT1_luethluk\Legacy\runtime" />
+    </key>
+  </component>
+  <component name="RunManager" selected="Python.run_test_with_HP">
+    <configuration name="run_test" type="PythonConfigurationType" factoryName="Python" temporary="true" nameIsGenerated="true">
+      <module name="Test_V01" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="WORKING_DIRECTORY" value="C:\Users\lukas\OneDrive\Dokumente\GitHub\MSE_VT1_luethluk\Examples" />
+      <option name="IS_MODULE_SDK" value="true" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="RUN_TOOL" value="" />
+      <option name="SCRIPT_NAME" value="C:\Users\lukas\OneDrive\Dokumente\GitHub\MSE_VT1_luethluk\Legacy\Examples\run_test.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <configuration name="run_test_with_HP" type="PythonConfigurationType" factoryName="Python" nameIsGenerated="true">
+      <module name="Test_V01" />
+      <option name="ENV_FILES" value="" />
+      <option name="INTERPRETER_OPTIONS" value="" />
+      <option name="PARENT_ENVS" value="true" />
+      <envs>
+        <env name="PYTHONUNBUFFERED" value="1" />
+      </envs>
+      <option name="SDK_HOME" value="" />
+      <option name="SDK_NAME" value="Python 3.13 (MSE_VT1_luethluk)" />
+      <option name="WORKING_DIRECTORY" value="" />
+      <option name="IS_MODULE_SDK" value="false" />
+      <option name="ADD_CONTENT_ROOTS" value="true" />
+      <option name="ADD_SOURCE_ROOTS" value="true" />
+      <EXTENSION ID="PythonCoverageRunConfigurationExtension" runner="coverage.py" />
+      <option name="RUN_TOOL" value="" />
+      <option name="SCRIPT_NAME" value="$PROJECT_DIR$/Examples/run_test/run_test_with_HP.py" />
+      <option name="PARAMETERS" value="" />
+      <option name="SHOW_COMMAND_LINE" value="false" />
+      <option name="EMULATE_TERMINAL" value="false" />
+      <option name="MODULE_MODE" value="false" />
+      <option name="REDIRECT_INPUT" value="false" />
+      <option name="INPUT_FILE" value="" />
+      <method v="2" />
+    </configuration>
+    <list>
+      <item itemvalue="Python.run_test_with_HP" />
+      <item itemvalue="Python.run_test" />
+    </list>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Python.run_test" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-js-predefined-d6986cc7102b-9b0f141eb926-JavaScript-PY-253.29346.142" />
+        <option value="bundled-python-sdk-f2b7a9f6281b-6e1f45a539f7-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-253.29346.142" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="1aa9b13d-3374-430b-a06b-497fdb6d1a1b" name="Changes" comment="" />
+      <created>1758968852736</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1758968852736</updated>
+      <workItem from="1758968855031" duration="272000" />
+      <workItem from="1758969247433" duration="14000" />
+      <workItem from="1758970103333" duration="34000" />
+      <workItem from="1758970692796" duration="125000" />
+      <workItem from="1758975997262" duration="201000" />
+      <workItem from="1759396897405" duration="44000" />
+      <workItem from="1759396979777" duration="101000" />
+      <workItem from="1759397364915" duration="103000" />
+      <workItem from="1759397863107" duration="23000" />
+      <workItem from="1759398117773" duration="22000" />
+      <workItem from="1759401679063" duration="439000" />
+      <workItem from="1759402143817" duration="13000" />
+      <workItem from="1759472219503" duration="7064000" />
+      <workItem from="1759480528992" duration="1304000" />
+      <workItem from="1759481854116" duration="7042000" />
+      <workItem from="1759491619390" duration="5002000" />
+      <workItem from="1759496691080" duration="1912000" />
+      <workItem from="1759498696268" duration="10000" />
+      <workItem from="1759991558910" duration="129000" />
+      <workItem from="1759991792648" duration="65000" />
+      <workItem from="1759991896548" duration="18597000" />
+      <workItem from="1760012328092" duration="3116000" />
+      <workItem from="1760015491478" duration="1880000" />
+      <workItem from="1760018126318" duration="1884000" />
+      <workItem from="1760077260174" duration="426000" />
+      <workItem from="1760085574933" duration="2127000" />
+      <workItem from="1760087755659" duration="4085000" />
+      <workItem from="1760094121818" duration="2114000" />
+      <workItem from="1760269073362" duration="1565000" />
+      <workItem from="1760273936272" duration="6090000" />
+      <workItem from="1760597755050" duration="642000" />
+      <workItem from="1760599612167" duration="1869000" />
+      <workItem from="1760602940580" duration="7381000" />
+      <workItem from="1760614663695" duration="6927000" />
+      <workItem from="1760625464072" duration="3130000" />
+      <workItem from="1760681455599" duration="7852000" />
+      <workItem from="1760693254471" duration="1662000" />
+      <workItem from="1761200049034" duration="1315000" />
+      <workItem from="1761205191872" duration="14371000" />
+      <workItem from="1761225617321" duration="2169000" />
+      <workItem from="1761292337054" duration="1921000" />
+      <workItem from="1761313837648" duration="1572000" />
+      <workItem from="1761317305956" duration="2588000" />
+      <workItem from="1761565118764" duration="385000" />
+      <workItem from="1761565548354" duration="2153000" />
+      <workItem from="1761651305954" duration="2621000" />
+      <workItem from="1761654141202" duration="83000" />
+      <workItem from="1761654790313" duration="217000" />
+      <workItem from="1761660566138" duration="691000" />
+      <workItem from="1761665503096" duration="2290000" />
+      <workItem from="1761723351328" duration="1827000" />
+      <workItem from="1762414698060" duration="3575000" />
+      <workItem from="1762418358297" duration="12160000" />
+      <workItem from="1762431284517" duration="11995000" />
+      <workItem from="1762499464810" duration="286000" />
+      <workItem from="1762501995200" duration="11758000" />
+      <workItem from="1762513938134" duration="13648000" />
+      <workItem from="1762527988619" duration="131000" />
+      <workItem from="1762528259074" duration="6816000" />
+      <workItem from="1762536201116" duration="1993000" />
+      <workItem from="1762542522325" duration="1147000" />
+      <workItem from="1762582769958" duration="3957000" />
+      <workItem from="1762586824415" duration="5123000" />
+      <workItem from="1762686601779" duration="3228000" />
+      <workItem from="1763193799076" duration="15961000" />
+      <workItem from="1763210645920" duration="1108000" />
+      <workItem from="1763282983917" duration="18620000" />
+      <workItem from="1763365521501" duration="1116000" />
+      <workItem from="1763397983076" duration="1297000" />
+      <workItem from="1763483838810" duration="1757000" />
+      <workItem from="1763622950785" duration="14365000" />
+      <workItem from="1763639475458" duration="5284000" />
+      <workItem from="1763645143869" duration="1861000" />
+      <workItem from="1763647065201" duration="4508000" />
+      <workItem from="1763710593410" duration="3034000" />
+      <workItem from="1763714445891" duration="8211000" />
+      <workItem from="1763725608791" duration="9699000" />
+      <workItem from="1764229217387" duration="28052000" />
+      <workItem from="1764259898157" duration="24000" />
+      <workItem from="1764857235432" duration="542000" />
+      <workItem from="1764935139220" duration="6970000" />
+      <workItem from="1765122011850" duration="7317000" />
+      <workItem from="1765282535969" duration="4092000" />
+      <workItem from="1765286726017" duration="15364000" />
+      <workItem from="1765302281432" duration="1238000" />
+      <workItem from="1765352439034" duration="11974000" />
+      <workItem from="1765437860619" duration="93000" />
+      <workItem from="1765438287887" duration="26082000" />
+      <workItem from="1765478171057" duration="4338000" />
+      <workItem from="1765555844247" duration="2535000" />
+      <workItem from="1765616407056" duration="18252000" />
+      <workItem from="1765641525802" duration="2085000" />
+      <workItem from="1765643659950" duration="4131000" />
+      <workItem from="1765647914876" duration="2333000" />
+      <workItem from="1766041512300" duration="5942000" />
+      <workItem from="1766048129958" duration="20586000" />
+      <workItem from="1766079538250" duration="2999000" />
+      <workItem from="1766087038063" duration="2623000" />
+      <workItem from="1766123850885" duration="2668000" />
+      <workItem from="1766128091886" duration="12810000" />
+      <workItem from="1766141482872" duration="250000" />
+      <workItem from="1766141843492" duration="17337000" />
+      <workItem from="1766162378837" duration="2631000" />
+      <workItem from="1766165184311" duration="261000" />
+      <workItem from="1766322007770" duration="12893000" />
+      <workItem from="1766339462184" duration="2967000" />
+      <workItem from="1766393429150" duration="781000" />
+      <workItem from="1766394322691" duration="16139000" />
+      <workItem from="1766414114905" duration="5381000" />
+      <workItem from="1766420075902" duration="123000" />
+      <workItem from="1766420563855" duration="548000" />
+      <workItem from="1766421344091" duration="24000" />
+      <workItem from="1766473126496" duration="1109000" />
+      <workItem from="1766474300477" duration="38328000" />
+      <workItem from="1766523120678" duration="4232000" />
+      <workItem from="1766584248861" duration="8847000" />
+      <workItem from="1766593266452" duration="3654000" />
+      <workItem from="1766601483095" duration="1508000" />
+      <workItem from="1766644728543" duration="17216000" />
+      <workItem from="1766665418975" duration="5406000" />
+      <workItem from="1767095789254" duration="7645000" />
+      <workItem from="1767169299363" duration="11794000" />
+      <workItem from="1767194742515" duration="3378000" />
+      <workItem from="1767261861068" duration="10292000" />
+      <workItem from="1767436471584" duration="13638000" />
+      <workItem from="1767455861458" duration="1777000" />
+      <workItem from="1767612030454" duration="78000" />
+      <workItem from="1767616765731" duration="2362000" />
+      <workItem from="1767626110701" duration="4040000" />
+      <workItem from="1767717629022" duration="2936000" />
+      <workItem from="1767940620510" duration="26232000" />
+      <workItem from="1767971805407" duration="4848000" />
+      <workItem from="1767978684121" duration="2964000" />
+      <workItem from="1767982782491" duration="133000" />
+      <workItem from="1767983119140" duration="12488000" />
+      <workItem from="1768030014834" duration="5167000" />
+      <workItem from="1768036874539" duration="29171000" />
+      <workItem from="1768067386871" duration="12537000" />
+      <workItem from="1768116335276" duration="5406000" />
+      <workItem from="1768374455525" duration="5616000" />
+      <workItem from="1768380759250" duration="13149000" />
+      <workItem from="1768396297975" duration="5812000" />
+      <workItem from="1768402196198" duration="4547000" />
+      <workItem from="1768410742732" duration="2874000" />
+      <workItem from="1768415296364" duration="8237000" />
+      <workItem from="1768455120560" duration="2107000" />
+      <workItem from="1768457363203" duration="99000" />
+      <workItem from="1768458956527" duration="35683000" />
+      <workItem from="1768498740258" duration="1593000" />
+      <workItem from="1768500389323" duration="322000" />
+      <workItem from="1768503748535" duration="15449000" />
+      <workItem from="1768599142628" duration="19846000" />
+      <workItem from="1768647390513" duration="27018000" />
+      <workItem from="1768677162577" duration="5927000" />
+      <workItem from="1768713517832" duration="17681000" />
+      <workItem from="1768746127341" duration="13243000" />
+      <workItem from="1768768001420" duration="2672000" />
+      <workItem from="1768819591040" duration="9032000" />
+      <workItem from="1768845346928" duration="5142000" />
+      <workItem from="1768931577736" duration="15061000" />
+      <workItem from="1769063888253" duration="13538000" />
+      <workItem from="1769078282857" duration="17591000" />
+      <workItem from="1769099802775" duration="43000" />
+      <workItem from="1769100001381" duration="37000" />
+      <workItem from="1769100198933" duration="23000" />
+      <workItem from="1769101844707" duration="29000" />
+      <workItem from="1769103707927" duration="1134000" />
+      <workItem from="1769106181303" duration="23000" />
+      <workItem from="1769106444072" duration="182000" />
+      <workItem from="1769108211726" duration="240000" />
+      <workItem from="1769109861957" duration="1045000" />
+      <workItem from="1769112403730" duration="322000" />
+      <workItem from="1769114326475" duration="56000" />
+      <workItem from="1769114661577" duration="1449000" />
+      <workItem from="1769151849058" duration="22275000" />
+      <workItem from="1769176672209" duration="9165000" />
+      <workItem from="1769192559669" duration="32000" />
+      <workItem from="1769195211918" duration="24000" />
+      <workItem from="1769201598457" duration="202000" />
+      <workItem from="1769201977235" duration="1933000" />
+      <workItem from="1769234823275" duration="8061000" />
+      <workItem from="1769244901039" duration="7457000" />
+      <workItem from="1769258343048" duration="3422000" />
+      <workItem from="1769261899508" duration="13385000" />
+      <workItem from="1769324921382" duration="177000" />
+      <workItem from="1769335409212" duration="211000" />
+      <workItem from="1769335788705" duration="6509000" />
+      <workItem from="1769343761821" duration="2942000" />
+      <workItem from="1769353821019" duration="284000" />
+      <workItem from="1769354221341" duration="9329000" />
+      <workItem from="1769372277964" duration="77000" />
+      <workItem from="1769372414644" duration="34000" />
+      <workItem from="1769372594177" duration="12000" />
+      <workItem from="1769414712758" duration="497000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+  </component>
+  <component name="com.intellij.coverage.CoverageDataManagerImpl">
+    <SUITE FILE_PATH="coverage/MSE_VT1_luethluk$Frostmodell_Hermes_2012_V3.coverage" NAME="Frostmodell_Hermes_2012_V3 Coverage Results" MODIFIED="1760688495962" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Frostmodelle" />
+    <SUITE FILE_PATH="coverage/Example_Case_2_py$Frostmodell_Hermes_2012.coverage" NAME="Frostmodell_Hermes_2012 Coverage Results" MODIFIED="1769355136995" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Examples" />
+    <SUITE FILE_PATH="coverage/MSE_VT1_luethluk$Frostmodell_Hermes_2012_V2.coverage" NAME="Frostmodell_Hermes_2012_V2 Coverage Results" MODIFIED="1760622255586" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Frostmodelle" />
+    <SUITE FILE_PATH="coverage/MSE_VT1_luethluk$run_test_edge_domain.coverage" NAME="run_test_edge_domain Coverage Results" MODIFIED="1762431730733" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="" />
+    <SUITE FILE_PATH="coverage/MSE_VT1_luethluk$run_test.coverage" NAME="run_test Coverage Results" MODIFIED="1766138051666" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="C:\Users\lukas\OneDrive\Dokumente\GitHub\MSE_VT1_luethluk\Examples" />
+    <SUITE FILE_PATH="coverage/MSE_VT1_luethluk$Test1.coverage" NAME="Test1 Coverage Results" MODIFIED="1758976046277" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$" />
+    <SUITE FILE_PATH="coverage/MSE_VT1_luethluk$Frostmodell_Hermes_2012.coverage" NAME="Frostmodell_Hermes_2012 Coverage Results" MODIFIED="1769078398816" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Examples" />
+    <SUITE FILE_PATH="coverage/MSE_VT1_luethluk$run_test_with_HP.coverage" NAME="run_test_with_HP Coverage Results" MODIFIED="1768486601398" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="" />
+    <SUITE FILE_PATH="coverage/MSE_VT1_luethluk$Example_Case_2.coverage" NAME="Example_Case_2 Coverage Results" MODIFIED="1769098688231" SOURCE_PROVIDER="com.intellij.coverage.DefaultCoverageFileProvider" RUNNER="coverage.py" COVERAGE_BY_TEST_ENABLED="false" COVERAGE_TRACING_ENABLED="false" WORKING_DIRECTORY="$PROJECT_DIR$/Examples/Example_Case_2 (F1)" />
+  </component>
+</project>
