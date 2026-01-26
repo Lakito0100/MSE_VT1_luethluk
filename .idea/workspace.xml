@@ -5,7 +5,7 @@
   </component>
   <component name="ChangeListManager">
     <list default="true" id="1aa9b13d-3374-430b-a06b-497fdb6d1a1b" name="Changes" comment="">
-      <change beforePath="$PROJECT_DIR$/Framework/visualisation/plot.py" beforeDir="false" afterPath="$PROJECT_DIR$/Framework/visualisation/plot.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -150,8 +150,8 @@
       <method v="2" />
     </configuration>
     <list>
-      <item itemvalue="Python.run_test" />
       <item itemvalue="Python.run_test_with_HP" />
+      <item itemvalue="Python.run_test" />
     </list>
     <recent_temporary>
       <list>
@@ -369,6 +369,7 @@
       <workItem from="1769372594177" duration="12000" />
       <workItem from="1769414712758" duration="497000" />
       <workItem from="1769418029277" duration="86000" />
+      <workItem from="1769420424512" duration="1264000" />
     </task>
     <servers />
   </component>
