@@ -145,8 +145,6 @@ class Air:
             return dp0 * (1.0 - (V / V0) ** 2)
 
         sigma_blockage = float(np.clip(self._sigma_min, 1e-6, 1.0))
-        #SIGMA_FLOOR = 0.10
-        #sigma_blockage = max(float(sigma_blockage), SIGMA_FLOOR)
 
         # Residual
         def F(V):
@@ -173,8 +171,6 @@ class Air:
 
         rho = float(getattr(cfg, "rho_amb", self._last_rho if self._last_rho is not None else 1.2))
         mdot_total = rho * V_star
-        #MDOT_FLOOR = 0.05  # kg/s (an deine Anlage anpassen)
-        #mdot_total = max(float(mdot_total), MDOT_FLOOR)
         return float(max(mdot_total, 0.0))
 
     def p_ws_buck_Pa(self,T_C: float) -> float:
@@ -225,27 +221,6 @@ class Air:
         w_in = cfg_in.w_amb
         p_in = cfg_in.p_a
 
-        #if self._fan_enabled(cfg_in) and getattr(cfg_in, "fan_master", False):
-        #    npar = self._n_parallel_air_paths(geom)
-        #
-        #    # 1) Frost -> sigma (conservative)
-        #    sigma = self._sigma_from_frost(geom, s_frost_bevor)
-        #    self._sigma_min = min(self._sigma_min, sigma)
-        #
-        #    # 2) dp bookkeeping
-        #    self._last_dp_seg = float(dp_seg)
-        #
-        #    # 3) Operating point: solve mdot_total from fan and system curves
-        #    mdot_total = self._solve_fan_operating_point(cfg_in, geom)
-        #
-        #    # Write back total mass flow
-        #    cfg_in.m_dot = float(mdot_total)
-        #
-        #    # Flow per path for this segment
-        #    m_dot_a = float(mdot_total) / npar
-        #
-        #    self._last_mdot_total = float(mdot_total)
-
         p_out = p_in - dp_seg
 
         # Prefer dry-air mass flow because w is defined per kg dry air
@@ -276,16 +251,6 @@ class Air:
 
         # 3) compute outlet temperature from (h_out, w_out)
         T_out = self.T_from_h_w_C(h_out, w_out)
-
-        # 4) enforce saturation (numerical safety)
-        #wsat_out = self.w_sat(T_out, p_out)
-        #if w_out > wsat_out:
-            # clamp very slightly below saturation to avoid RH=1+ε
-        #    w_out = wsat_out * (1.0 - 1e-9)
-
-            # optional (recommended): make enthalpy consistent with the clamped w_out
-            # by re-solving T_out from the same h_out and the adjusted w_out:
-        #    T_out = self.T_from_h_w_C(h_out, w_out)
 
         # 5) RH from partial pressure ratio (no CoolProp call)
         pws = self.p_ws_buck_Pa(T_out)
