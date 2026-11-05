@@ -1,6 +1,16 @@
 from dataclasses import dataclass
 import numpy as np
 
+
+def interp_schedule(schedule, t: float) -> float:
+    """
+    Evaluate a piecewise-linear schedule [(t0, y0), (t1, y1), ...] at time t [s].
+    Before the first / after the last point the first / last value is held.
+    """
+    ts = [float(p[0]) for p in schedule]
+    ys = [float(p[1]) for p in schedule]
+    return float(np.interp(t, ts, ys))
+
 @dataclass(frozen=False)
 class CaseConfig:
     """Simulation boundary conditions and material properties."""
@@ -80,6 +90,13 @@ class GridShape:
     t_switch_RH: float = 5 * 60.0   # s start of the ramp
     ramp_RH: float = 20.0           # s ramp duration
 
+    # Optional piecewise-linear schedules [(t [s], value), ...] of the inlet air.
+    # If given, they replace the hold-ramp-hold profile of the same quantity
+    # (independent of change_temperature / change_humidity). Every break point
+    # counts as a switch time for the time-step reduction below.
+    T_a_schedule: list | None = None    # °C
+    RH_schedule: list | None = None     # -
+
     # Window [s] around each ramp in which the time step is reduced
     dt_window_switch: float = 10.0
 
@@ -119,6 +136,18 @@ class HeatPump:
     # Compressor
     W_comp: float = 0.001
 
+    # Optional piecewise-linear schedules [(t [s], value), ...]
+    RPM_schedule: list | None = None          # compressor speed [1/min]; None -> ramp 0 -> 1000 in 12.5 s
+    T_in_water_schedule: list | None = None   # water inlet temperature [°C]; None -> T_in_water
+
     def RPM(self, t):
-        """Return compressor RPM ramped from zero to 1000."""
+        """Return the compressor speed [1/min] at time t."""
+        if self.RPM_schedule:
+            return interp_schedule(self.RPM_schedule, t)
         return min(1000, 80 * t)
+
+    def T_in_water_at(self, t):
+        """Return the water inlet temperature [°C] at time t."""
+        if self.T_in_water_schedule:
+            return interp_schedule(self.T_in_water_schedule, t)
+        return self.T_in_water

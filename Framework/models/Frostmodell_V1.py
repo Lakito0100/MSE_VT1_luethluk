@@ -2,8 +2,56 @@ import numpy as np
 import math
 from scipy.sparse import lil_matrix, csr_matrix
 from scipy.sparse.linalg import spsolve
+from scipy.linalg import solve_banded
 from Framework.core.corrolations import DK
 from CoolProp.HumidAirProp import HAPropsSI, HAProps_Aux
+
+# Picard iteration of the frost solvers: the temperature update is under-relaxed
+# with OMEGA_T_START and the factor is halved whenever the residual grows
+# (never below OMEGA_T_MIN, the previously used fixed value).
+OMEGA_T_START = 0.8
+OMEGA_T_MIN = 0.1
+
+
+def p_ws_Pa(T_C):
+    """
+    Saturation vapor pressure of water [Pa], vectorised.
+    Below 273.16 K over ice (IAPWS 2011, Wagner et al.), above over liquid water
+    (Wagner & Pruss). Identical to CoolProp's HAProps_Aux("p_ws") below 0 °C
+    (same equation) and within 1e-4 relative above.
+    """
+    T = np.asarray(T_C, dtype=float) + 273.15
+    out = np.empty_like(T)
+    ice = T < 273.16
+    if np.any(ice):
+        th = T[ice] / 273.16
+        out[ice] = 611.657 * np.exp((-0.212144006e2 * th**0.333333333e-2
+                                     + 0.273203819e2 * th**0.120666667e1
+                                     - 0.610598130e1 * th**0.170333333e1) / th)
+    if np.any(~ice):
+        Tw = T[~ice]
+        tau = 1.0 - Tw / 647.096
+        out[~ice] = 22.064e6 * np.exp(647.096 / Tw * (
+            -7.85951783 * tau + 1.84408259 * tau**1.5 - 11.7866497 * tau**3
+            + 22.6807411 * tau**3.5 - 15.9618719 * tau**4 + 1.80122502 * tau**7.5))
+    return out
+
+
+def w_sat_vec(Tf_C, p_Pa):
+    """Saturation humidity ratio [kg/kg_da] at Tf_C (float or array), float for scalar input."""
+    p_ws = p_ws_Pa(Tf_C)
+    w = 0.621945 * p_ws / (float(p_Pa) - p_ws)
+    return float(w) if np.ndim(Tf_C) == 0 else w
+
+
+def _solve_tridiag(lower, main, upper, b):
+    """Solve A x = b for tridiagonal A (lower[i] = A[i+1, i], upper[i] = A[i, i+1])."""
+    ab = np.zeros((3, main.size))
+    ab[0, 1:] = upper
+    ab[1, :] = main
+    ab[2, :-1] = lower
+    return solve_banded((1, 1), ab, b, check_finite=False)
+
 
 class Frostmodell_Edge:
     """Edge frost model with coupled heat/mass transfer at the fin edge."""
@@ -11,26 +59,11 @@ class Frostmodell_Edge:
     @staticmethod
     def w_sat_coolprop(Tf_C, p_Pa):
         """
-        Tf_C: float or array-like (°C)
-        p_Pa: float (Pa)
-        Returns: float or np.ndarray
+        Saturation humidity ratio over ice/water [kg/kg_da].
+        Tf_C: float or array-like (°C), p_Pa: float (Pa). Returns float or np.ndarray.
+        Same saturation pressure as CoolProp's HAProps_Aux("p_ws"), but vectorised.
         """
-        Tf_C_arr = np.asarray(Tf_C)
-
-        # scalar fast-path
-        if Tf_C_arr.ndim == 0:
-            Tf_K = float(Tf_C_arr) + 273.15
-            p_ws, _units = HAProps_Aux("p_ws", Tf_K, float(p_Pa), 0.0)
-            return 0.621945 * p_ws / (float(p_Pa) - p_ws)
-
-        # vector path: loop scalars (CoolProp call is scalar-only)
-        out = np.empty_like(Tf_C_arr, dtype=float)
-        p = float(p_Pa)
-        for i, tC in np.ndenumerate(Tf_C_arr):
-            Tf_K = float(tC) + 273.15
-            p_ws, _units = HAProps_Aux("p_ws", Tf_K, p, 0.0)
-            out[i] = 0.621945 * p_ws / (p - p_ws)
-        return out
+        return w_sat_vec(Tf_C, p_Pa)
         #return HAPropsSI("W", "T", Tf_K, "P", p_Pa, "R", 1.0)
 
     @staticmethod
@@ -103,6 +136,7 @@ class Frostmodell_Edge:
         """Solve the edge frost state at theta=90° for one segment."""
         it = 0
         res_T = res_w = np.inf
+        omega_T = OMEGA_T_START
         j = gs.ntheta-1
 
         # Working copies
@@ -238,41 +272,18 @@ class Frostmodell_Edge:
 
             b_T[idx] = -cfg_up.isv * cfg_up.C * rho * (w_f_old[idx] - w_sat_i)
 
-            # =========================
-            # Build CSR matrices from diagonals
-            # =========================
-            rows_main = np.arange(N)
-            cols_main = rows_main
-
-            rows_upper = np.arange(N - 1)
-            cols_upper = rows_upper + 1
-
-            rows_lower = np.arange(1, N)
-            cols_lower = rows_lower - 1
-
-            # w-matrix
-            data_w = np.concatenate([main_w, upper_w, lower_w])
-            rows_w = np.concatenate([rows_main, rows_upper, rows_lower])
-            cols_w = np.concatenate([cols_main, cols_upper, cols_lower])
-            A_w = csr_matrix((data_w, (rows_w, cols_w)), shape=(N, N))
-
-            # T-matrix
-            data_T = np.concatenate([main_T, upper_T, lower_T])
-            rows_T = np.concatenate([rows_main, rows_upper, rows_lower])
-            cols_T = np.concatenate([cols_main, cols_upper, cols_lower])
-            A_T = csr_matrix((data_T, (rows_T, cols_T)), shape=(N, N))
-
-            # Solve linear systems
-            T_f_new[:] = spsolve(A_T, b_T)
-            w_f_new[:] = spsolve(A_w, b_w)
+            # Solve the tridiagonal systems
+            T_f_new[:] = _solve_tridiag(lower_T, main_T, upper_T, b_T)
+            w_f_new[:] = _solve_tridiag(lower_w, main_w, upper_w, b_w)
 
             # Convergence criterion
+            res_T_prev = res_T
             res_T = np.max(np.abs(T_f_new - T_f_old))
             res_w = np.max(np.abs(w_f_new - w_f_old))
 
-            # Under-relaxation for stability
-
-            omega_T = 0.1
+            # Adaptive under-relaxation: reduce omega_T if the residual grows
+            if res_T > res_T_prev:
+                omega_T = max(0.5 * omega_T, OMEGA_T_MIN)
             omega_w = 1.0
 
             T_f_old[:] = (1 - omega_T) * T_f_old + omega_T * T_f_new
@@ -473,26 +484,11 @@ class Frostmodell_Finn_and_Tube:
     @staticmethod
     def w_sat_coolprop(Tf_C, p_Pa):
         """
-        Tf_C: float or array-like (°C)
-        p_Pa: float (Pa)
-        Returns: float or np.ndarray
+        Saturation humidity ratio over ice/water [kg/kg_da].
+        Tf_C: float or array-like (°C), p_Pa: float (Pa). Returns float or np.ndarray.
+        Same saturation pressure as CoolProp's HAProps_Aux("p_ws"), but vectorised.
         """
-        Tf_C_arr = np.asarray(Tf_C)
-
-        # scalar fast-path
-        if Tf_C_arr.ndim == 0:
-            Tf_K = float(Tf_C_arr) + 273.15
-            p_ws, _units = HAProps_Aux("p_ws", Tf_K, float(p_Pa), 0.0)
-            return 0.621945 * p_ws / (float(p_Pa) - p_ws)
-
-        # vector path: loop scalars (CoolProp call is scalar-only)
-        out = np.empty_like(Tf_C_arr, dtype=float)
-        p = float(p_Pa)
-        for i, tC in np.ndenumerate(Tf_C_arr):
-            Tf_K = float(tC) + 273.15
-            p_ws, _units = HAProps_Aux("p_ws", Tf_K, p, 0.0)
-            out[i] = 0.621945 * p_ws / (p - p_ws)
-        return out
+        return w_sat_vec(Tf_C, p_Pa)
         #return HAPropsSI("W", "T", Tf_K, "P", p_Pa, "R", 1.0)
 
     @staticmethod
@@ -550,6 +546,7 @@ class Frostmodell_Finn_and_Tube:
         """Solve fin-and-tube frost state for one segment."""
         it = 0
         res_T = res_w = np.inf
+        omega_T = OMEGA_T_START
 
         # Working copies
         T_f_old = np.asarray(st.T_ft, dtype=float).copy()
@@ -740,89 +737,18 @@ class Frostmodell_Finn_and_Tube:
 
             b_T[idx] = -cfg_up.isv * cfg_up.C * rho * (w_f_old[idx] - w_sat_i)
 
-            # =========================
-            # Build CSR matrices (no new imports) + solve
-            # =========================
-            rows_main = np.arange(N)
-            cols_main = rows_main
-
-            rows_upper = np.arange(N - 1)
-            cols_upper = rows_upper + 1
-
-            rows_lower = np.arange(1, N)
-            cols_lower = rows_lower - 1
-
-            data_w = np.concatenate([main_w, upper_w, lower_w])
-            rows_w = np.concatenate([rows_main, rows_upper, rows_lower])
-            cols_w = np.concatenate([cols_main, cols_upper, cols_lower])
-            A_w = csr_matrix((data_w, (rows_w, cols_w)), shape=(N, N))
-
-            data_T = np.concatenate([main_T, upper_T, lower_T])
-            rows_T = np.concatenate([rows_main, rows_upper, rows_lower])
-            cols_T = np.concatenate([cols_main, cols_upper, cols_lower])
-            A_T = csr_matrix((data_T, (rows_T, cols_T)), shape=(N, N))
-
-            #for i in range(N):
-            #    if i == 0:
-            #        # x = 0: cold wall/tube -> Dirichlet T = T_s_fs
-            #        # w: Neumann dw/dx = 0 -> w1 - w0 = 0
-            #        A_w[i, i] = -1.0
-            #        A_w[i, i+1] = 1.0
-            #        b_w[i] = 0.0
-            #
-            #        A_T[i, i] = 1.0
-            #        b_T[i] = cfg.T_tube
-            #
-            #    elif i == N - 1:
-            #        # x = δ_f: frost surface toward air
-            #        # w: Dirichlet condition
-            #        A_w[i, i] = 1.0
-            #        b_w[i] = wfs_sat
-            #
-            #        k_eff_i = self.k_f(st, i)
-            #        A_T[i, i] = k_eff_i / dx
-            #        A_T[i, i-1] = -k_eff_i / dx
-            #        b_T[i] = q_tot_fs
-            #
-            #    else:
-            #        # inner node 0 < i < N-1
-            #        rho_a_i = rho_a[i]
-            #        Deff_i = self.D_eff(cfg, st, i)
-            #        k_eff_i = self.k_f(st, i)
-            #
-            #        # ---- Massen-Gleichung (w) ----
-            #        alpha_w = Deff_i * rho_a_i / (dx ** 2)
-            #        gamma_w = Deff_i * rho_a_i / (dx ** 2)
-            #        beta_w = -2.0 * Deff_i * rho_a_i / (dx ** 2) - cfg.C * rho_a_i
-            #
-            #        A_w[i, i + 1] = alpha_w
-            #        A_w[i, i] = beta_w
-            #        A_w[i, i - 1] = gamma_w
-            #
-            #        w_sat_i = self.w_sat_coolprop(T_f_old[i], cfg.p_a)
-            #        b_w[i] = -cfg.C * rho_a_i * w_sat_i
-            #
-            #        # ---- Energie-Gleichung (T) ----
-            #        alpha_T = k_eff_i / (dx ** 2)
-            #        gamma_T = k_eff_i / (dx ** 2)
-            #        beta_T = -2.0 * k_eff_i / (dx ** 2)
-            #
-            #        A_T[i, i + 1] = alpha_T
-            #        A_T[i, i] = beta_T
-            #        A_T[i, i - 1] = gamma_T
-            #
-            #        b_T[i] = -cfg.isv * cfg.C * rho_a_i * (w_f_old[i] - w_sat_i)
-
-            # Solve linear systems
-            T_f_new[:] = spsolve(A_T, b_T)
-            w_f_new[:] = spsolve(A_w, b_w)
+            # Solve the tridiagonal systems
+            T_f_new[:] = _solve_tridiag(lower_T, main_T, upper_T, b_T)
+            w_f_new[:] = _solve_tridiag(lower_w, main_w, upper_w, b_w)
 
             # Convergence assessment
+            res_T_prev = res_T
             res_T = np.max(np.abs(T_f_new - T_f_old))
             res_w = np.max(np.abs(w_f_new - w_f_old))
 
-            # Under-relaxation as in the edge model
-            omega_T = 0.1 # save stabil: 0.1
+            # Adaptive under-relaxation: reduce omega_T if the residual grows
+            if res_T > res_T_prev:
+                omega_T = max(0.5 * omega_T, OMEGA_T_MIN)
             omega_w = 1.0
 
             T_f_old[:] = (1 - omega_T) * T_f_old + omega_T * T_f_new

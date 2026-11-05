@@ -1,7 +1,13 @@
+import os
+from pathlib import Path
 import numpy as np
+import CoolProp
 from CoolProp.CoolProp import PropsSI
 from scipy.interpolate import RegularGridInterpolator
 import pickle
+
+# Default location for cached property tables (see cache_dir below)
+DEFAULT_TABLE_CACHE_DIR = Path.home() / ".cache" / "mse_vt1_framework"
 
 def drho_dP_dH(
     self,
@@ -21,6 +27,8 @@ def drho_dP_dH(
     # Optional: save/load interpolators
     save_path: str | None = None,
     load_path: str | None = None,
+    # Optional: directory for caching the rho/T grids between runs
+    cache_dir: str | os.PathLike | None = None,
 ):
     """
     Return partial derivatives of density ρ with respect to pressure P and enthalpy H:
@@ -38,6 +46,8 @@ def drho_dP_dH(
       - query_P, query_H: evaluation point(s) for derivatives
       - scheme: "central" or "forward"
       - save_path/load_path: pickle for interpolators (optional)
+      - cache_dir: if set, the CoolProp grids rho(P,H) and T(P,H) are stored there
+        (keyed by fluid, ranges and CoolProp version) and reused by later runs
     """
 
     # ------------------------------------------------------------
@@ -47,6 +57,7 @@ def drho_dP_dH(
         with open(load_path, "rb") as f:
             interps = pickle.load(f)
         rho_interp = interps["rho"]
+        T_interp = interps.get("T", None)
         # Optional: if derivative interpolators are stored directly
         drho_dP_interp = interps.get("drho_dP", None)
         drho_dH_interp = interps.get("drho_dH", None)
@@ -76,14 +87,38 @@ def drho_dP_dH(
     # 2) Thermophysical properties (CoolProp) -> rho(P,H)
     # ------------------------------------------------------------
     if load_path is None:
-        P_flat = P_grid.ravel()
-        H_flat = H_grid.ravel()
+        rho = T = None
+        cache_file = None
+        if cache_dir is not None:
+            key = (f"{fluid}_P{P_min:g}-{P_max:g}-{dP:g}_H{H_min:g}-{H_max:g}-{dH:g}"
+                   f"_CoolProp{CoolProp.__version__}")
+            cache_file = Path(cache_dir) / f"rho_T_table_{key}.npz"
+            if cache_file.exists():
+                try:
+                    with np.load(cache_file) as cached:
+                        if cached["rho"].shape == shape and cached["T"].shape == shape:
+                            rho, T = cached["rho"], cached["T"]
+                except Exception:
+                    rho = T = None  # unreadable cache -> recompute
 
-        rho_flat = PropsSI("D", "P", P_flat, "H", H_flat, fluid)
-        rho = rho_flat.reshape(shape)
+        if rho is None:
+            P_flat = P_grid.ravel()
+            H_flat = H_grid.ravel()
 
-        T_flat = PropsSI("T", "P", P_flat, "H", H_flat, fluid)
-        T = T_flat.reshape(shape)
+            rho_flat = PropsSI("D", "P", P_flat, "H", H_flat, fluid)
+            rho = rho_flat.reshape(shape)
+
+            T_flat = PropsSI("T", "P", P_flat, "H", H_flat, fluid)
+            T = T_flat.reshape(shape)
+
+            if cache_file is not None:
+                try:
+                    cache_file.parent.mkdir(parents=True, exist_ok=True)
+                    tmp = cache_file.with_name(f"{cache_file.stem}.{os.getpid()}.tmp.npz")
+                    np.savez(tmp, rho=rho, T=T)
+                    os.replace(tmp, cache_file)  # atomic, safe with parallel runs
+                except OSError:
+                    pass  # caching is optional
 
         rho_interp = RegularGridInterpolator(
             (P_vec, H_vec), rho, bounds_error=False, fill_value=np.nan

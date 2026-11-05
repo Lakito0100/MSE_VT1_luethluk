@@ -6,6 +6,7 @@ from Framework.runtime.initializer import init_fields
 from Framework.models.air_modell import Air
 from Framework.models.refrigerant_modell_V2 import RefGeomParams, Refrigerant
 import Framework.runtime.dynamic_models as dynamic_models
+from Framework.core.config import interp_schedule
 
 import time
 from datetime import datetime
@@ -14,9 +15,7 @@ import numpy as np
 from CoolProp.CoolProp import PropsSI
 import io
 from contextlib import redirect_stdout
-import os
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class Simulator:
     """Main simulation driver for the finned-tube HX model."""
@@ -66,50 +65,64 @@ class Simulator:
         self.air = Air()
         self.rec = ResultRecorder(fields=self._fields, stream_path=self._stream_path)
 
-        # Inlet air profiles (dynamic models): start values default to the case config
+        # Inlet air profiles (dynamic models): start values default to the case config.
+        # A schedule [(t, value), ...] replaces the hold-ramp-hold profile.
         T_a_start = cfg.T_a if gs.T_a_start is None else gs.T_a_start
         RH_start = cfg.RH if gs.RH_start is None else gs.RH_start
+        use_T = gs.change_temperature or bool(gs.T_a_schedule)
+        use_RH = gs.change_humidity or bool(gs.RH_schedule)
+
+        def _T_a_at(t_eval):
+            if gs.T_a_schedule:
+                return interp_schedule(gs.T_a_schedule, t_eval)
+            return dynamic_models.T_a_profile(t_eval, T_a_start, gs.T_a_end, gs.t_switch_T, gs.ramp_T)
+
+        def _RH_at(t_eval):
+            if gs.RH_schedule:
+                return max(0.0, min(0.999999, interp_schedule(gs.RH_schedule, t_eval)))
+            return dynamic_models.RH_profile(t_eval, RH_start, gs.RH_end, gs.t_switch_RH, gs.ramp_RH)
 
         def _apply_inlet_profiles(t_eval):
-            if not (gs.change_temperature or gs.change_humidity):
+            if not (use_T or use_RH):
                 return
-            if gs.change_temperature:
-                input_cfg.T_a = dynamic_models.T_a_profile(
-                    t_eval, T_a_start, gs.T_a_end, gs.t_switch_T, gs.ramp_T)
-            if gs.change_humidity:
-                RH_t = dynamic_models.RH_profile(
-                    t_eval, RH_start, gs.RH_end, gs.t_switch_RH, gs.ramp_RH)
-                w, RH, rho = dynamic_models.humid_air_state(input_cfg.T_a, input_cfg.p_a, RH=RH_t)
+            if use_T:
+                input_cfg.T_a = _T_a_at(t_eval)
+            if use_RH:
+                w, RH, rho = dynamic_models.humid_air_state(input_cfg.T_a, input_cfg.p_a, RH=_RH_at(t_eval))
             else:
                 # only the temperature changes: moisture content stays constant
                 w, RH, rho = dynamic_models.humid_air_state(input_cfg.T_a, input_cfg.p_a, w=input_cfg.w_amb)
             input_cfg.w_amb, input_cfg.RH, input_cfg.rho_amb = w, RH, rho
 
-        # Times around which the time step is reduced (start of each active ramp)
+        # Times around which the time step is reduced: start of each ramp,
+        # or every break point of a schedule (air and heat pump)
         t_switches = []
-        if gs.change_humidity:
-            t_switches.append(gs.t_switch_RH)
-        if gs.change_temperature:
-            t_switches.append(gs.t_switch_T)
+        for flag, sched, t_sw in ((gs.change_humidity, gs.RH_schedule, gs.t_switch_RH),
+                                  (gs.change_temperature, gs.T_a_schedule, gs.t_switch_T)):
+            if sched:
+                t_switches.extend(float(p[0]) for p in sched)
+            elif flag:
+                t_switches.append(t_sw)
+        for sched in (getattr(self.HP, "RPM_schedule", None), getattr(self.HP, "T_in_water_schedule", None)):
+            if sched:
+                t_switches.extend(float(p[0]) for p in sched)
 
         # Only apply at t=0 if a start value differs from the case config;
         # otherwise the inlet state stays exactly as configured
-        if (gs.change_temperature and T_a_start != cfg.T_a) or (gs.change_humidity and RH_start != cfg.RH):
+        if (use_T and _T_a_at(0.0) != cfg.T_a) or (use_RH and _RH_at(0.0) != cfg.RH):
             _apply_inlet_profiles(0.0)
 
         cfg_grid, st_grid = build_segment_grids(base_cfg=input_cfg, geom=geom, gs=gs)
         n_x = len(cfg_grid)
         n_y = len(cfg_grid[0])
 
-        # --- Parallel helpers (thread-local instances) ---
-        _tls = threading.local()
+        # Frost model instances (segments are processed one after another: the
+        # solvers are Python code under the GIL, so a thread pool was ~2.5x slower)
+        _model_e = model.Frostmodell_Edge()
+        _model_ft = model.Frostmodell_Finn_and_Tube()
 
         def _get_thread_models():
-            # Important: thread-local instances prevent race conditions if models keep state
-            if not hasattr(_tls, "model_e"):
-                _tls.model_e = model.Frostmodell_Edge()
-                _tls.model_ft = model.Frostmodell_Finn_and_Tube()
-            return _tls.model_e, _tls.model_ft
+            return _model_e, _model_ft
 
         s_max = (geom.fin_gap()/2.0) * 0.95
 
@@ -149,8 +162,7 @@ class Simulator:
 
                 print(f"[FAN] sigma_min={self.air._sigma_min:.3f}, mdot_total={input_cfg.m_dot:.4f} kg/s")
 
-            max_workers = min(os.cpu_count() or 1, n_y)
-            stop_event = threading.Event()  # thread-safe stop flag
+            stop_event = threading.Event()  # stop flag
             max_rh_wall_step = 0.0
             any_frost_condition_step = False
 
@@ -301,23 +313,21 @@ class Simulator:
 
                 return iy, q_for_list, info
 
-            # --- Parallel over iy, sequential over ix ---
+            # --- Row by row in air-flow direction (ix), segments of a row one after another ---
             print_every = gs.print_output_every_x_it
             do_print = (it % print_every == 0)
 
             for ix in range(n_x):
                 infos_by_iy = [None] * n_y
 
-                with ThreadPoolExecutor(max_workers=max_workers) as ex:
-                    futures = [ex.submit(_process_segment, ix, iy) for iy in range(n_y)]
-                    for fut in as_completed(futures):
-                        iy, q_val, info = fut.result()
-                        Q_seg_x0_list[ix, iy] = q_val
-                        max_rh_wall_step = max(max_rh_wall_step, info["rh_wall"])
-                        any_frost_condition_step = any_frost_condition_step or info["frost_condition"]
+                for iy_seg in range(n_y):
+                    iy, q_val, info = _process_segment(ix, iy_seg)
+                    Q_seg_x0_list[ix, iy] = q_val
+                    max_rh_wall_step = max(max_rh_wall_step, info["rh_wall"])
+                    any_frost_condition_step = any_frost_condition_step or info["frost_condition"]
 
-                        if do_print:
-                            infos_by_iy[iy] = info
+                    if do_print:
+                        infos_by_iy[iy] = info
 
                 # Print in order (iy=0..n_y-1), compact output
 
@@ -440,7 +450,13 @@ class Simulator:
                           cycle_ph=cycle_ph,
                           m_dot_ref=m_comp,
                           valve_pos=VPos,
-                          dt=gs.dt)
+                          dt=gs.dt,
+                          # boundary conditions at time t
+                          T_in_air=input_cfg.T_a,
+                          RH_in=input_cfg.RH,
+                          w_in=input_cfg.w_amb,
+                          RPM=self.HP.RPM(t),
+                          T_in_water=self.HP.T_in_water_at(t))
 
             # Push grid snapshot
             # also store the last time step (t + dt passes t_end) and an early stop (t_end set to t)
