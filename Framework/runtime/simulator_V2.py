@@ -9,6 +9,7 @@ import Framework.runtime.dynamic_models as dynamic_models
 from Framework.core.config import interp_schedule
 
 import time
+import re
 from datetime import datetime
 import copy
 import numpy as np
@@ -23,6 +24,8 @@ class Simulator:
         self._stream_path = None if stream_path is None else f"{stream_path}.jsonl"
         self._fields = fields
         self.rec = None
+        self.stop_reason = None
+        self.gs_run = None
 
         A_flow = (((geom.d_tube_a/2)-geom.tube_thickness)**2) * np.pi
         L = geom.l_tube()*geom.n_fin  # tube length of one segment (n_fin fin pitches)
@@ -57,6 +60,7 @@ class Simulator:
         input_cfg = copy.deepcopy(cfg)
         gs = copy.deepcopy(gs)
         self.gs_run = gs
+        self.stop_reason = None  # set if the simulation ends before gs.t_end
 
         # Fresh model state for every run
         self.HP = copy.deepcopy(self._HP_initial)
@@ -187,6 +191,7 @@ class Simulator:
                 # Warnings/errors as extra lines, still ordered and readable
                 extra = []
                 extra.extend(info["warn"])
+                extra.extend(info["stop"])
                 extra.extend(info["err"])
                 if extra:
                     return line + "\n" + "\n".join(extra)
@@ -212,6 +217,7 @@ class Simulator:
                     "ft": None,
                     "air": None,
                     "warn": [],
+                    "stop": [],   # messages of conditions that end the simulation (always printed)
                     "err": [],
                     "rh_wall": 0.0,
                     "frost_condition": False}
@@ -249,7 +255,7 @@ class Simulator:
                                 f"\033[93mEdge solver in segment {(ix, iy)} not converged "
                                 f"(it={iter_e}, res_T={res_T_e:.2e}, res_w={res_w_e:.2e}).\033[0m")
                         if st.s_e[gs.ntheta - 1] >= s_max:
-                            info["warn"].append(
+                            info["stop"].append(
                                 f"\033[31mThe frost in the edge segment {(ix, iy)} is blocking the air flow, ending the simulation.\033[0m"
                             )
                             stop_event.set()
@@ -276,7 +282,7 @@ class Simulator:
                             info["warn"].append(
                                 f"\033[93mNegative moisture mass flow in segment {(ix, iy)}, m_f set to 0.\033[0m")
                         if st.s_ft >= s_max:
-                            info["warn"].append(
+                            info["stop"].append(
                                 f"\033[31mThe frost in the segment {(ix, iy)} is blocking the air flow, ending the simulation.\033[0m"
                             )
                             stop_event.set()
@@ -328,6 +334,12 @@ class Simulator:
 
                     if do_print:
                         infos_by_iy[iy] = info
+                    elif info["stop"] or info["err"]:
+                        # conditions that end the simulation are reported on every step
+                        print("\n".join(info["stop"] + info["err"]))
+                    if (info["stop"] or info["err"]) and self.stop_reason is None:
+                        msg = (info["stop"] + info["err"])[0]
+                        self.stop_reason = f"t = {t:.1f} s: " + re.sub(r"\x1b\[[0-9;]*m", "", msg)
 
                 # Print in order (iy=0..n_y-1), compact output
 
@@ -524,6 +536,10 @@ class Simulator:
             f"Simulation ended at {end_wall:%Y-%m-%d %H:%M:%S}\n"
             f"Time to complete: {sim_time / 60:.1f} min"
         )
+
+        if self.stop_reason is not None:
+            print(f"\033[31mSimulation stopped early: {self.stop_reason}\033[0m")
+        self.rec.stop_reason = self.stop_reason
 
         self.rec.close()
         return self.rec
