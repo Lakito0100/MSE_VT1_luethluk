@@ -33,7 +33,7 @@ this branch in the 4-core cloud container, with Cases 2 and 3 running in paralle
 | 1 (F0), no frost | 10 min | 6.5 min | 2.5 min | ~2.6× (start-up cache; no frost to speed up) |
 | 2 (F1), frost | 60 min | 570.5 min | **31.4 min** | **~18×** |
 | 3 (F2), frost + temperature ramp | 60 min | 700.7 min | **38.6 min** | **~18×** |
-| 4 (F3), new, 90 min of changing conditions | 90 min | – | see below | – |
+| 4 (F3), new, 90 min of changing conditions | 90 min | – | **73.4 min** | – (not run before) |
 
 The machines differ, so these ratios are indicative. The same-machine comparisons above (frost solver
 ×30, frost reference run ×11) are the precise numbers.
