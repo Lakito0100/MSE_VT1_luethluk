@@ -25,6 +25,19 @@ branch.
 | `Simulator()` start-up | 13.7 s | **0.03 s** (from the second run on) |
 | Case 1 (no frost) | – | identical results (deviation 0.000 %) |
 
+**Example cases, full length** (before: `Simulation_time.png` of the original runs on your machine; after:
+this branch in the 4-core cloud container, with Cases 2 and 3 running in parallel to other simulations):
+
+| Case | Simulated | Before | After | Speed-up |
+|---|---|---|---|---|
+| 1 (F0), no frost | 10 min | 6.5 min | 2.5 min | ~2.6× (start-up cache; no frost to speed up) |
+| 2 (F1), frost | 60 min | 570.5 min | **28.6 min** | **~20×** |
+| 3 (F2), frost + temperature ramp | 60 min | 700.7 min | **38.9 min** | **~18×** |
+| 4 (F3), new, 90 min of changing conditions | 90 min | – | see below | – |
+
+The machines differ, so these ratios are indicative. The same-machine comparisons above (frost solver
+×30, frost reference run ×11) are the precise numbers.
+
 **O5 (larger `dt_max`) was not adopted.** Against the 7.5-min frost reference:
 
 | dt_max | 0.5 s | 1 s | 2 s |
