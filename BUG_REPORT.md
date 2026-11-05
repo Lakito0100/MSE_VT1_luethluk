@@ -1,7 +1,45 @@
 # Simulation test & bug report
 
-Scope: `Framework/` and `Examples/` (Legacy was not reviewed). No source code was changed on this
-branch; every fix below is a proposal. Line numbers refer to commit `c6fef2e`.
+Scope: `Framework/` and `Examples/` (Legacy was not reviewed). Line numbers in sections 1–4 refer to
+commit `c6fef2e`, the state before the fixes. Speed-up options are in `OPTIMIZATION_REPORT.md`.
+
+## 0. Status: fixes applied on this branch
+
+All bugs below are fixed on `claude/confident-wright-1pbmjz`, except where the table says otherwise.
+Testing found three more problems (20–22), which are fixed as well.
+
+| # | What was changed |
+|---|---|
+| 1 | `refrigerant_modell_V2.py`: `fill_vals = -delta_h ...` in the condenser and evaporator matrices. |
+| 2 | `compressor_model` reuses one `AbstractState("HEOS")` created in `__init__`. No more per-call TTSE states. |
+| 3 | `valve_model` and `compressor_model` use the scalar `rho_and_derivs`. `recorder.read_results_csv_json` also reads old CSVs with `[x]` cells without deprecated NumPy behaviour. |
+| 4 | `air_modell.propagate_inplace`: the limiter uses `min` for cooling and `max` for heating. |
+| 5 | Kays & London: `A_fr = n_fin·fin_pitch_cc·h_fin·n_seg_r·stacks`, `A_min = n_fin·fin_gap·(h_fin−d)·n_seg_r·stacks` (σ = 0.73 instead of being clipped to 1). Per your decision `dp_clean` stays unused and is marked as such in `config.py`. |
+| 6 | After the fan solve, `input_cfg.v_a = m_dot / (rho_amb · A_free)`, with the same free-flow area as `propagate_inplace` (new `Air.free_flow_area_seg`). |
+| 7 | New `GridShape` fields: `T_a_start/T_a_end/t_switch_T/ramp_T`, `RH_start/RH_end/t_switch_RH/ramp_RH`, `dt_window_switch`, `dt_min/dt_max/it_target`. The start values default to `cfg.T_a`/`cfg.RH`, so the examples behave as before. `RH` and `rho_amb` are updated together with `w_amb`/`T_a`, the profile is evaluated at `t + dt` (no one-step lag), and the dt reduction follows the configured switch times. |
+| 8 | The valve controller runs once per time step before the integration and stays constant inside `rhs`. `compressor_model` is pure. `W_comp`, `EER` and `COP` are computed from the state at time t. `EER`/`COP` are NaN while the compressor is off. |
+| 9 | All example `.py` and `.ipynb` files: `n_fin` added to the backup `m_dot`. |
+| 10 | The SH filter uses `_valve_SH_filt` everywhere. |
+| 11 | Default `path_variant="serpentine"`. Exact string comparison and a correct error message in `build_connection_path`. |
+| 12 | `st.s_e[gs.ntheta - 1]` (tested with `ntheta = 60`). |
+| 13 | `x_ref = NaN` for single phase. |
+| 14 | `FinnTubedHX.l_tube()` returns `fin_pitch_cc`, so the segment tube length is `n_fin·fin_pitch_cc`. |
+| 15 | `run()` works on copies of `gs`, `HP` and the model state, and creates a new recorder per run, so two calls give identical results (tested). The `gs` actually used is available as `sim.gs_run`. |
+| 16 | Frost-model warning: a flag on the model, reported in the ordered segment output. Non-converged frost solves now also produce a warning. |
+| 17 | `rho_a_e` and `rho_a_ft` are declared in `SimState` (unused `rho_a` removed), so they are written to and read from the JSONL. The snapshot size is an optimization item (`OPTIMIZATION_REPORT.md`). |
+| 18 | Not a bug. Moved to `OPTIMIZATION_REPORT.md` (edge model). |
+| 19 | `np.gradient` (one-sided at the edges) for the table derivatives; `H_min = 150 kJ/kg`. |
+| 20 (new) | **The last time step was never stored as a grid snapshot.** The condition `t >= gs.t_end` cannot be true inside `while t <= gs.t_end`, so field plots at `t_idx=-1` showed a state up to 100 steps old, and runs with fewer than 100 steps had no snapshot at all, which crashes the field plots. Now `t + gs.dt > gs.t_end` also triggers a snapshot. |
+| 21 (new) | `plot_logph_cycles` crashed with `IndexError` when the requested time window holds no data. It now raises a clear `ValueError`. |
+| 22 (new) | `__pycache__/*.pyc` files were tracked in git and changed on every run. They are removed from the index and ignored in `.gitignore`. |
+| cleanups | `fields=("t",)`; `CorLammellenRohrWU.k` uses areas that exist; `RuntimeError` instead of `SystemExit` in the Hermes model; `max(n_inner, 1)` in the dt adaptation; dead `do_print` condition, `T_inlet_air_mean`, `Air.ft_model` and unused fan attributes removed; `HeatPump.N_cond` typed as `int`; humidity plot labels generated from `n_seg_l`. Not changed: `isv`/`h_sub` (both are config inputs), the unused `New_edge_state_seg` (may be useful later), and section 5 (modelling decisions). |
+
+**Verification after the fixes**
+- Smoke test (30 s, Case 1) with an empty CoolProp cache, NumPy `DeprecationWarning`s turned into errors (this stands in for new NumPy), and plotting directly after the run: passes, and all 23 plot files are written.
+- Case 1, full 10 min, regenerated in `Examples/Example_Case_1 (F0)` (CSV and all plots). 1210 steps instead of 1401, 2.5 min run time. Energy balances: air side 7843 W vs. Q_evap 7850 W; Q_evap + W_comp = 11109 W vs. Q_cond 11102 W. The spurious air heating at start-up dropped from +0.53 °C to +0.13 °C. End values compared with the old results: Q_evap 7837 → 7850 W, Q_cond 11115 → 11102 W, COP 3.390 → 3.407, p_cond 13.59 → 13.35 bar, air mass flow 1.4648 → 1.4579 kg/s.
+- `run()` called twice on the same objects gives identical results and leaves `gs`/`HP` untouched. `ntheta = 60` with frost works. `use_fan = False` uses the corrected mass flow (1.49 kg/s).
+- Case 3 shortened to 7.5 min with the temperature ramp moved to 6 min (exercises the humidity step, frost growth and the temperature ramp): see the end of section 0.
+- The committed results of Cases 2 and 3 (60 min) were **not** regenerated (many hours of run time). They were produced with the old code.
 
 ## 1. What was tested
 
