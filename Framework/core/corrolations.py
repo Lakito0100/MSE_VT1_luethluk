@@ -1,3 +1,4 @@
+import math
 from dataclasses import dataclass
 
 # Dimensionless numbers
@@ -26,7 +27,9 @@ class CorLammellenRohrWU:
     """Correlation for finned-tube wall-to-fluid heat transfer."""
     @staticmethod
     def k(geom, alpha_s: float, alpha_i: float, lam_g: float) -> float:
-        """Return overall heat-transfer coefficient k."""
+        """Return overall heat-transfer coefficient k, related to the air-side area of one segment."""
         s_rohr = (geom.d_tube_a - geom.d_rohr_i()) / (2 * lam_g)
         w_leitung_i_a = 1/alpha_i + s_rohr
-        return (1/alpha_s + geom.A()/geom.A_i() * w_leitung_i_a)**(-1)
+        A_a = geom.A_one_segment()                                        # air side
+        A_i = geom.d_rohr_i() * math.pi * geom.l_tube() * geom.n_fin      # refrigerant side
+        return (1/alpha_s + A_a/A_i * w_leitung_i_a)**(-1)

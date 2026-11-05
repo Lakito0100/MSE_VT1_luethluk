@@ -103,21 +103,19 @@ def drho_dP_dH(
     pts0 = np.stack([P_grid, H_grid], axis=-1)
     rho0 = rho_interp(pts0)
 
+    # Derivatives directly on the grid values. At the table edges one-sided
+    # differences are used, so the edges (where states get clipped to) are finite.
     if scheme.lower() == "forward":
-        rho_P_fwd = rho_interp(np.stack([P_grid + dP, H_grid], axis=-1))
-        rho_H_fwd = rho_interp(np.stack([P_grid, H_grid + dH], axis=-1))
-
-        d_rho_dP = (rho_P_fwd - rho0) / dP
-        d_rho_dH = (rho_H_fwd - rho0) / dH
+        d_rho_dP = np.empty_like(rho0)
+        d_rho_dH = np.empty_like(rho0)
+        d_rho_dP[:-1, :] = (rho0[1:, :] - rho0[:-1, :]) / dP
+        d_rho_dP[-1, :] = d_rho_dP[-2, :]   # backward at the upper P edge
+        d_rho_dH[:, :-1] = (rho0[:, 1:] - rho0[:, :-1]) / dH
+        d_rho_dH[:, -1] = d_rho_dH[:, -2]   # backward at the upper H edge
 
     elif scheme.lower() == "central":
-        rho_P_plus  = rho_interp(np.stack([P_grid + dP, H_grid], axis=-1))
-        rho_P_minus = rho_interp(np.stack([P_grid - dP, H_grid], axis=-1))
-        rho_H_plus  = rho_interp(np.stack([P_grid, H_grid + dH], axis=-1))
-        rho_H_minus = rho_interp(np.stack([P_grid, H_grid - dH], axis=-1))
-
-        d_rho_dP = (rho_P_plus - rho_P_minus) / (2.0 * dP)
-        d_rho_dH = (rho_H_plus - rho_H_minus) / (2.0 * dH)
+        # central in the interior, one-sided at the edges
+        d_rho_dP, d_rho_dH = np.gradient(rho0, P_vec, H_vec, edge_order=1)
     else:
         raise ValueError("scheme must be 'forward' or 'central'.")
 

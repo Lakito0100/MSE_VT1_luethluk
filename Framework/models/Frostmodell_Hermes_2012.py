@@ -82,7 +82,7 @@ def frost_state_at_s(s: float, geom: Flatplate, air: AirProperty, op: OpPoint, h
             return Ts_new, rho_f, k_f, Bi, theta
         Ts = Ts_new
 
-    raise SystemExit("Frostzustand nicht konvergiert!")
+    raise RuntimeError("Frostzustand nicht konvergiert!")
 
 def s_of_t(t: float, geom: Flatplate, air: AirProperty, op: OpPoint, hp: HermesParams, s_old: float) -> float:
     Ts, rho_f, k_f, _, _ = frost_state_at_s(s_old, geom, air, op, hp)

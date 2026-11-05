@@ -50,3 +50,40 @@ def w_amb_profile(t: float,
     RH = max(0.0, min(0.999999, RH))
     w = HAPropsSI("W", "T", T_a_C + 273.15, "P", p_a_Pa, "R", RH)
     return float(w)
+
+
+def RH_profile(t: float,
+               RH_before: float, RH_after: float,
+               t_switch: float = 120.0,
+               ramp_duration_s: float = 60.0,
+               easing: str = "linear") -> float:
+    """Relative humidity profile with a hold-ramp-hold transition (clamped to [0, 0.999999])."""
+    RH = _hold_ramp_hold(t, RH_before, RH_after, t_switch, ramp_duration_s, easing)
+    return max(0.0, min(0.999999, RH))
+
+
+def humid_air_state(T_a_C: float, p_a_Pa: float, RH: float | None = None, w: float | None = None):
+    """
+    Return (w [kg/kg_da], RH [-], rho [kg/m^3 humid air]) for a given temperature
+    and either RH or w.
+    """
+    T_K = T_a_C + 273.15
+    if RH is not None:
+        RH = max(0.0, min(0.999999, float(RH)))
+        w = HAPropsSI("W", "T", T_K, "P", p_a_Pa, "R", RH)
+    elif w is not None:
+        w = max(0.0, float(w))
+        try:
+            RH = HAPropsSI("R", "T", T_K, "P", p_a_Pa, "W", w)
+        except ValueError:
+            RH = 1.0  # supersaturated (e.g. after a temperature drop at constant w)
+    else:
+        raise ValueError("Either RH or w must be given.")
+    try:
+        v_ha = HAPropsSI("Vha", "T", T_K, "P", p_a_Pa, "W", w)  # m^3 per kg dry air
+        rho = (1.0 + w) / v_ha
+    except ValueError:
+        # ideal-gas mixture (same as Air.propagate_inplace)
+        p_w = p_a_Pa * w / (0.62198 + w)
+        rho = (p_a_Pa - p_w) / (287.058 * T_K) + p_w / (461.495 * T_K)
+    return float(w), float(min(RH, 1.0)), float(rho)

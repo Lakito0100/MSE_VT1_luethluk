@@ -20,11 +20,13 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class Simulator:
     """Main simulation driver for the finned-tube HX model."""
-    def __init__(self, geom, cfg, HP, stream_path: str | None = "sim_grid_log", fields=("t")):
-        self.rec = ResultRecorder(fields=fields, stream_path=f"{stream_path}.jsonl")
+    def __init__(self, geom, cfg, HP, stream_path: str | None = "sim_grid_log", fields=("t",)):
+        self._stream_path = None if stream_path is None else f"{stream_path}.jsonl"
+        self._fields = fields
+        self.rec = None
 
         A_flow = (((geom.d_tube_a/2)-geom.tube_thickness)**2) * np.pi
-        L = geom.l_tube()*geom.n_fin
+        L = geom.l_tube()*geom.n_fin  # tube length of one segment (n_fin fin pitches)
         A_inner = (geom.d_tube_a-2*geom.tube_thickness)*np.pi*L
         V_wall = (((geom.d_tube_a/2)**2)*np.pi - A_flow)*L
 
@@ -39,14 +41,63 @@ class Simulator:
         )
 
         self.HP = HP
+        self._HP_initial = copy.deepcopy(HP)  # every run starts from this state
         self.air = Air()
         self.refrigerant = Refrigerant(geom,self.gp,cfg,HP,geom.CP)
 
 
     def run(self, cfg, geom, gs, model):
-        """Run the transient simulation over the configured time horizon."""
+        """
+        Run the transient simulation over the configured time horizon.
+
+        The inputs cfg, gs and the HeatPump given to the constructor are not
+        modified, so run() can be called repeatedly with identical results.
+        The GridShape actually used (adapted dt, t_end shortened on an early
+        stop) is available afterwards as self.gs_run.
+        """
         input_cfg = copy.deepcopy(cfg)
-        cfg_grid, st_grid = build_segment_grids(base_cfg=cfg, geom=geom, gs=gs)
+        gs = copy.deepcopy(gs)
+        self.gs_run = gs
+
+        # Fresh model state for every run
+        self.HP = copy.deepcopy(self._HP_initial)
+        self.refrigerant.HP = self.HP
+        self.refrigerant.reset_integrator()
+        self.air = Air()
+        self.rec = ResultRecorder(fields=self._fields, stream_path=self._stream_path)
+
+        # Inlet air profiles (dynamic models): start values default to the case config
+        T_a_start = cfg.T_a if gs.T_a_start is None else gs.T_a_start
+        RH_start = cfg.RH if gs.RH_start is None else gs.RH_start
+
+        def _apply_inlet_profiles(t_eval):
+            if not (gs.change_temperature or gs.change_humidity):
+                return
+            if gs.change_temperature:
+                input_cfg.T_a = dynamic_models.T_a_profile(
+                    t_eval, T_a_start, gs.T_a_end, gs.t_switch_T, gs.ramp_T)
+            if gs.change_humidity:
+                RH_t = dynamic_models.RH_profile(
+                    t_eval, RH_start, gs.RH_end, gs.t_switch_RH, gs.ramp_RH)
+                w, RH, rho = dynamic_models.humid_air_state(input_cfg.T_a, input_cfg.p_a, RH=RH_t)
+            else:
+                # only the temperature changes: moisture content stays constant
+                w, RH, rho = dynamic_models.humid_air_state(input_cfg.T_a, input_cfg.p_a, w=input_cfg.w_amb)
+            input_cfg.w_amb, input_cfg.RH, input_cfg.rho_amb = w, RH, rho
+
+        # Times around which the time step is reduced (start of each active ramp)
+        t_switches = []
+        if gs.change_humidity:
+            t_switches.append(gs.t_switch_RH)
+        if gs.change_temperature:
+            t_switches.append(gs.t_switch_T)
+
+        # Only apply at t=0 if a start value differs from the case config;
+        # otherwise the inlet state stays exactly as configured
+        if (gs.change_temperature and T_a_start != cfg.T_a) or (gs.change_humidity and RH_start != cfg.RH):
+            _apply_inlet_profiles(0.0)
+
+        cfg_grid, st_grid = build_segment_grids(base_cfg=input_cfg, geom=geom, gs=gs)
         n_x = len(cfg_grid)
         n_y = len(cfg_grid[0])
 
@@ -90,6 +141,11 @@ class Simulator:
 
                 mdot_total = self.air._solve_fan_operating_point(input_cfg, geom)
                 input_cfg.m_dot = float(mdot_total)
+
+                # Inlet velocity (in the clean fin gaps) consistent with the fan flow;
+                # same area definition as the outlet velocity in Air.propagate_inplace
+                A_free_inlet = self.air.free_flow_area_seg(geom, 0.0) * n_y * geom.stacks
+                input_cfg.v_a = input_cfg.m_dot / (input_cfg.rho_amb * A_free_inlet)
 
                 print(f"[FAN] sigma_min={self.air._sigma_min:.3f}, mdot_total={input_cfg.m_dot:.4f} kg/s")
 
@@ -176,7 +232,11 @@ class Simulator:
                     res_w_e = float("nan")
                     try:
                         iter_e, res_T_e, res_w_e = model_e_loc.New_edge_state_seg_at_90(cfg_up, cfg, geom, st, gs)
-                        if st.s_e[89] >= s_max:
+                        if res_T_e > 1e-6 or res_w_e > 1e-6:
+                            info["warn"].append(
+                                f"\033[93mEdge solver in segment {(ix, iy)} not converged "
+                                f"(it={iter_e}, res_T={res_T_e:.2e}, res_w={res_w_e:.2e}).\033[0m")
+                        if st.s_e[gs.ntheta - 1] >= s_max:
                             info["warn"].append(
                                 f"\033[31mThe frost in the edge segment {(ix, iy)} is blocking the air flow, ending the simulation.\033[0m"
                             )
@@ -196,6 +256,13 @@ class Simulator:
                     res_w_ft = float("nan")
                     try:
                         iter_ft, res_T_ft, res_w_ft = model_ft_loc.New_finn_and_tube_state_seg(cfg_up, cfg, geom, st, gs)
+                        if res_T_ft > 1e-6 or res_w_ft > 1e-6:
+                            info["warn"].append(
+                                f"\033[93mFin/tube solver in segment {(ix, iy)} not converged "
+                                f"(it={iter_ft}, res_T={res_T_ft:.2e}, res_w={res_w_ft:.2e}).\033[0m")
+                        if getattr(model_ft_loc, "last_negative_mass_flux", False):
+                            info["warn"].append(
+                                f"\033[93mNegative moisture mass flow in segment {(ix, iy)}, m_f set to 0.\033[0m")
                         if st.s_ft >= s_max:
                             info["warn"].append(
                                 f"\033[31mThe frost in the segment {(ix, iy)} is blocking the air flow, ending the simulation.\033[0m"
@@ -236,7 +303,7 @@ class Simulator:
 
             # --- Parallel over iy, sequential over ix ---
             print_every = gs.print_output_every_x_it
-            do_print = (it % print_every == 0) or stop_event.is_set()
+            do_print = (it % print_every == 0)
 
             for ix in range(n_x):
                 infos_by_iy = [None] * n_y
@@ -275,17 +342,12 @@ class Simulator:
 
             # Calculation of the heat transfer coefficient
             # --- Inlet/Outlet ---
-            T_inlet_air_mean = np.mean([cfg_grid[0][iy].T_a for iy in range(n_y)])
             T_outlet_air_mean = np.mean([cfg_grid[-1][iy].T_a for iy in range(n_y)])
             T_ref_out = cfg_grid[x_end][y_end].T_ref
 
-            # Calculate the COP
-            W_comp = self.HP.W_comp
+            # Heat flows of the state at time t (end of the previous refrigerant update)
             Q_cond = self.HP.Q_cond
             Q_evap = self.HP.Q_evap
-
-            EER = Q_evap/W_comp
-            COP = Q_cond/W_comp
 
             mean_s_ft = np.mean([st_grid[ix][iy].s_ft
                                  for ix in range(n_x)
@@ -307,6 +369,15 @@ class Simulator:
 
             p2_discharge = p_ref_cond
             m_comp, h2_discharge = self.refrigerant.compressor_model(pi=p1_suction, hi=h1_suction, po=p2_discharge, RPM=self.HP.RPM(t))
+
+            # Compressor power and efficiencies at time t (same state as Q_evap / Q_cond)
+            W_comp = m_comp * (h2_discharge - h1_suction)
+            if W_comp > 1e-9:
+                EER = Q_evap / W_comp
+                COP = Q_cond / W_comp
+            else:
+                EER = float("nan")  # compressor off
+                COP = float("nan")
 
             p3_cond_out = p_ref_cond
             h3_cond_out = self.HP.h_ref_cond[-1]
@@ -372,7 +443,8 @@ class Simulator:
                           dt=gs.dt)
 
             # Push grid snapshot
-            if it % gs.store_grid_every_x_it == 0 or t >= gs.t_end:
+            # also store the last time step (t + dt passes t_end) and an early stop (t_end set to t)
+            if it % gs.store_grid_every_x_it == 0 or t + gs.dt > gs.t_end or t >= gs.t_end:
                 print('Pushing grid state')
                 self.rec.push_grid_snapshot(
                     t=t,
@@ -382,17 +454,12 @@ class Simulator:
                 )
 
 
-            # Dynamic models
-
-            if gs.change_temperature:
-                input_cfg.T_a = dynamic_models.T_a_profile(t, 0.0, -5.0, 30*60.0, 60.0)
-
-            if gs.change_humidity:
-                input_cfg.w_amb = dynamic_models.w_amb_profile(t,input_cfg.T_a,input_cfg.p_a,0.0,0.8,5*60.0,20.0)
-
-        # Updating the refrigerant state
-
             dt_step_n = gs.dt
+
+            # Dynamic models: inlet air for the next time step (t + dt)
+            _apply_inlet_profiles(t + dt_step_n)
+
+            # Updating the refrigerant state
 
             if gs.cal_ref:
                 print('Calculating the refrigerant state for the next time step in all segments...')
@@ -407,20 +474,18 @@ class Simulator:
                     dt=dt_step_n,
                 )
 
-                # Adaptive time step parameters
-                if 5*60.0 - 10 <= t <= 5*60.0 + 10:
+                # Adaptive time step: small steps around the ramps of the inlet profiles
+                if any(abs(t - ts) <= gs.dt_window_switch for ts in t_switches):
                     gs.dt = max(dt_start, gs.dt * 0.5)
                 else:
-                    it_target = 20
                     k = 0.2  # aggressiveness
                     fac_min, fac_max = 0.5, 1.5  # limit per outer step
-                    dt_min, dt_max = 0.01, 0.5  # absolute bounds
 
-                    fac = (it_target / n_inner) ** k
+                    fac = (gs.it_target / max(n_inner, 1)) ** k
                     fac = max(fac_min, min(fac_max, fac))
 
                     gs.dt *= fac
-                    gs.dt = max(dt_min, min(dt_max, gs.dt))
+                    gs.dt = max(gs.dt_min, min(gs.dt_max, gs.dt))
 
                 print(f"Updating dt for the next time step to dt={gs.dt:.2f} s")
 

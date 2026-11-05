@@ -181,8 +181,8 @@ class ResultRecorder:
         sim_field_names  = {f.name for f in _dc_fields(SimState)}
 
         sim_array_fields = {
-            "s_e", "T_e", "rho_e", "rho_a", "w_e",
-            "T_ft", "rho_ft", "w_ft"
+            "s_e", "T_e", "rho_e", "rho_a_e", "w_e",
+            "T_ft", "rho_ft", "w_ft", "rho_a_ft"
         }
 
         # Cast t to float (if stored as int/str)
@@ -301,6 +301,10 @@ class ResultRecorder:
                             normed.append(np.full(shp, float(a)))
                 elif a.ndim == ndim and a.shape == shp:
                     normed.append(a.astype(float, copy=False))
+                elif ndim == 0:
+                    # Scalar column but a cell holds an array (e.g. "[x]" written by
+                    # older versions): use the single value, NaN if not size 1
+                    normed.append(np.array(float(a.ravel()[0]) if a.size == 1 else np.nan))
                 else:
                     # Mismatched shape -> pad/trim to target shape with NaN
                     b = np.full(shp, np.nan, dtype=float)

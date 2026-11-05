@@ -10,7 +10,7 @@ class SimState:
     s_e: np.ndarray = field(default_factory=lambda: np.zeros((0,), dtype=float))
     T_e: np.ndarray = field(default_factory=lambda: np.zeros((0, 0), dtype=float))
     rho_e: np.ndarray = field(default_factory=lambda: np.zeros((0, 0), dtype=float))
-    rho_a: np.ndarray = field(default_factory=lambda: np.zeros((0, 0), dtype=float))
+    rho_a_e: np.ndarray = field(default_factory=lambda: np.zeros((0, 0), dtype=float))  # dry-air density in the edge frost
     w_e: np.ndarray = field(default_factory=lambda: np.zeros((0, 0), dtype=float))
 
     # Fin and tube domain
@@ -18,3 +18,4 @@ class SimState:
     T_ft: np.ndarray = field(default_factory=lambda: np.zeros((0,), dtype=float))
     rho_ft: np.ndarray = field(default_factory=lambda: np.zeros((0,), dtype=float))
     w_ft: np.ndarray = field(default_factory=lambda: np.zeros((0,), dtype=float))
+    rho_a_ft: np.ndarray = field(default_factory=lambda: np.zeros((0,), dtype=float))  # dry-air density in the fin/tube frost
