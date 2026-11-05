@@ -37,6 +37,8 @@ sparse matrix, CoolProp calls).
 | current `ThreadPoolExecutor` | 579 s | 94 |
 | same code, segments run one after another | **226 s** | 94 |
 
+The 7.5-min Case 3 verification run (threaded) needed 68 min of wall time, with 50 min of *system* time
+against 44 min of user time. That much kernel time is a typical sign of threads contending for the GIL.
 The frost solvers are mostly Python and run under the GIL, so threads cannot run them in parallel.
 Instead they add contention and context switches, plus a new pool for every row in every step. The
 "ct" values printed per segment are inflated by threads waiting for each other.
