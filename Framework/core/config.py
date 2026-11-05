@@ -23,7 +23,7 @@ class CaseConfig:
     use_fan: bool
     fan_dp0: float
     fan_V0: float
-    dp_clean: float
+    dp_clean: float     # Pa, clean-coil pressure drop (currently not used by the fan model)
 
     # Refrigerant data
     ref_str: str        # refrigerant name
@@ -59,15 +59,35 @@ class GridShape:
     cal_frost: bool = True
     cal_ref: bool = True
 
-    #dynamic models
+    # Adaptive time step
+    dt_min: float = 0.01            # s lower bound
+    dt_max: float = 0.5             # s upper bound
+    it_target: int = 20             # target inner refrigerant-solver steps per time step
+
+    # Dynamic models: hold-ramp-hold profiles of the inlet air
     change_humidity: bool = True
     change_temperature: bool = True
+
+    # Temperature profile [°C]; T_a_start=None -> CaseConfig.T_a
+    T_a_start: float | None = None
+    T_a_end: float = -5.0
+    t_switch_T: float = 30 * 60.0   # s start of the ramp
+    ramp_T: float = 60.0            # s ramp duration
+
+    # Relative humidity profile [-]; RH_start=None -> CaseConfig.RH
+    RH_start: float | None = None
+    RH_end: float = 0.8
+    t_switch_RH: float = 5 * 60.0   # s start of the ramp
+    ramp_RH: float = 20.0           # s ramp duration
+
+    # Window [s] around each ramp in which the time step is reduced
+    dt_window_switch: float = 10.0
 
 @dataclass(frozen=False)
 class HeatPump:
     """Heat-pump (condenser and water side) configuration."""
     # Condenser
-    N_cond: float           # number of plates
+    N_cond: int             # number of condenser control volumes
     p_ref_cond: float
     h_ref_cond: np.ndarray
     T_wall: np.ndarray

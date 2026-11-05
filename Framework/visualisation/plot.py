@@ -799,6 +799,12 @@ def plot_logph_cycles(
     else:
         idxs = np.array([0], dtype=int)
 
+    if idxs.size == 0:
+        raise ValueError(
+            f"No cycles in the requested time window (t_start={t_start}, t_end={t_end}); "
+            f"available data: t = {float(t[0]):.1f} ... {float(t[-1]):.1f} s."
+        )
+
     # --- Auto-limits (if not explicitly set) ---
     if xlim is None or ylim is None:
         auto_xlim, auto_ylim = _auto_limits_logph_from_cycle(cycle_ph[idxs])

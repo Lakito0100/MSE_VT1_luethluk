@@ -464,6 +464,12 @@ class Frostmodell_Edge:
 class Frostmodell_Finn_and_Tube:
     """Frost model for the fin-and-tube domain."""
 
+    def __init__(self):
+        # Set by New_finn_and_tube_state_seg: True if the air-side vapor flux was
+        # negative in the last call (m_f set to 0). Read by the simulator, which
+        # reports it in the ordered segment output instead of printing from threads.
+        self.last_negative_mass_flux = False
+
     @staticmethod
     def w_sat_coolprop(Tf_C, p_Pa):
         """
@@ -843,8 +849,8 @@ class Frostmodell_Finn_and_Tube:
         Deff_s = self.D_eff(cfg_up, st, N - 1)
         grad_w_s = (st.w_ft[-1] - st.w_ft[-2]) / dx
 
+        self.last_negative_mass_flux = bool(check_m_delta)
         if check_m_delta:
-            print(f"\033[31mNegative moisture mass flow detected, setting m_f = 0!\033[0m")
             m_rho_s = Deff_s * rho_a_s * grad_w_s
             m_f_s = 0.0
             m_delta_s = m_f_s - m_rho_s

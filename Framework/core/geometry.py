@@ -30,8 +30,12 @@ class FinnTubedHX:
         return self.fin_pitch_cc - self.fin_thickness
 
     def l_tube(self):
-        """Return the tube pitch length used for segment spacing."""
-        return self.fin_pitch_cc + self.fin_thickness
+        """
+        Return the tube length per fin (= fin pitch, center to center).
+        The c-c pitch already contains one fin thickness, so the tube length of
+        one segment is n_fin * l_tube().
+        """
+        return self.fin_pitch_cc
 
     def A_tube_one_segment(self):
         """Return the tube area per segment on the air side."""
@@ -103,7 +107,7 @@ class FinnTubedHX:
         variant = variant.lower()
         path: List[Tuple[int, int]] = []
 
-        if variant in ("serpentine"):
+        if variant == "serpentine":
             # Start at the upper right, serpentine by columns toward the left
             for row_idx_from_bottom, i_l in enumerate(range(n_l - 1, -1, -1)):
                 if row_idx_from_bottom % 2 == 0:
@@ -115,7 +119,7 @@ class FinnTubedHX:
                 for i_r in col_range:
                     path.append((i_l, i_r))
 
-        elif variant in ("serpentine_variant"):
+        elif variant == "serpentine_variant":
             # Start at the lower right, serpentine by rows toward the left
             for col_idx_from_right, i_r in enumerate(range(n_r - 1, -1, -1)):
                 if col_idx_from_right % 2 == 0:
@@ -129,6 +133,6 @@ class FinnTubedHX:
 
         else:
             raise ValueError(f"Unknown variant='{variant}'. Supported: "
-                             f"'row_serpentine', 'col_serpentine'.")
+                             f"'serpentine', 'serpentine_variant'.")
 
         return path

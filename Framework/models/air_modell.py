@@ -1,5 +1,4 @@
 from CoolProp.HumidAirProp import HAPropsSI
-from Framework.models.Frostmodell_V1 import Frostmodell_Finn_and_Tube
 import math
 import numpy as np
 
@@ -7,13 +6,7 @@ class Air:
     """Air-side model including fan coupling and moisture/enthalpy tracking."""
 
     def __init__(self):
-        self.ft_model = Frostmodell_Finn_and_Tube()
-
-        self._fan_initialized = False
-        self._K_clean = None
         self._sigma_min = 1.0
-        self._last_mdot_total = None
-        self._last_dp_seg = 0.0
 
         self._last_rho = None
         self._last_nu = None
@@ -27,6 +20,15 @@ class Air:
         n_y = geom.n_seg_r
         stacks = geom.stacks
         return max(1, n_y * stacks)
+
+    @staticmethod
+    def free_flow_area_seg(geom, s_frost: float = 0.0) -> float:
+        """
+        Free-flow cross-section of one segment (one air path) [m^2]:
+        n_fin fin gaps of height h_fin, narrowed by frost on both fin faces.
+        Same definition as used for the outlet velocity in propagate_inplace.
+        """
+        return geom.h_fin * geom.n_fin * max(geom.fin_gap() - 2.0 * float(s_frost), 1e-9)
 
     def _sigma_from_frost(self, geom, s_frost) -> float:
         """Compute free-flow area ratio sigma from frost thickness."""
@@ -43,7 +45,7 @@ class Air:
             sigma_blockage  dimensionless blockage factor (0..1], from geometry restriction (e.g. g_eff/g0)
 
         Required/assumed values:
-            - Face area A_fr ~ l_fin*h_fin*stacks
+            - Face area A_fr = (n_fin*fin_pitch_cc) * h_fin * n_seg_r * stacks
             - Minimum free area A_min scales from a "clean" cross-section and sigma_blockage
             - Tube pitches Xt/Xl: if missing -> Xt/Xl = 1
             - Ki, Ko: parameters from cfg (default 0)
@@ -61,18 +63,18 @@ class Air:
         Ki = float(getattr(cfg, "Ki_in", 0.0))
         Ko = float(getattr(cfg, "Ko_out", 0.0))
 
-        # Face area
-        A_fr = float(geom.l_fin * geom.h_fin * getattr(geom, "stacks", 1)) * geom.n_fin
-
-        # Minimum free area (simplified geometry):
-        # clean: A_min_clean_seg ~ l_tube() * (h_fin - d_tube_a)
-        # total: scaled by n_seg_r and stacks
-        g0 = max(float(geom.h_fin - geom.d_tube_a), 1e-9)
-        A_min_clean_seg = float(geom.l_tube() * g0)
-
         n_cols = int(getattr(geom, "n_seg_r", 1))
         stacks = int(getattr(geom, "stacks", 1))
-        A_min_clean = (A_min_clean_seg * n_cols * stacks) * geom.n_fin
+
+        # Face area: width of one segment (n_fin fin pitches) x fin height,
+        # times all segments across the air flow (n_seg_r) and all stacks
+        A_fr = float(geom.n_fin * geom.fin_pitch_cc * geom.h_fin) * n_cols * stacks
+
+        # Minimum free area (simplified geometry): per fin channel the fin gap
+        # times the height not covered by the tube, n_fin channels per segment
+        g0 = max(float(geom.h_fin - geom.d_tube_a), 1e-9)
+        A_min_clean_seg = float(geom.fin_gap() * g0) * geom.n_fin
+        A_min_clean = A_min_clean_seg * n_cols * stacks
 
         # Frost/blockage
         sigma_blockage = float(np.clip(sigma_blockage, 1e-6, 1.0))
@@ -245,7 +247,12 @@ class Air:
         h_in = self.h_moist_da_Jpkg(T_in, w_in)
         Q_max = (h_in - h_min) * m_dot_da
 
-        Q_tot_eff = min(Q_tot, Q_max)
+        # The air cannot cross the wall/frost-surface temperature:
+        # cooling (Q_tot >= 0) is limited from above, heating (Q_tot < 0) from below
+        if Q_tot >= 0.0:
+            Q_tot_eff = min(Q_tot, Q_max)
+        else:
+            Q_tot_eff = max(Q_tot, Q_max)
 
         h_out = h_in - Q_tot_eff / m_dot_da
 
@@ -262,7 +269,7 @@ class Air:
         # rho_out = ...
 
         # Update velocity with a protected free-flow area
-        A = geom.h_fin * geom.n_fin * max(geom.fin_gap() - 2.0 * s_frost_bevor, 1e-9)
+        A = self.free_flow_area_seg(geom, s_frost_bevor)
         R_da = 287.058 # J/(kg K) dry air
         R_v = 461.495  # J/(kg K) water vapor
         T_K = T_out + 273.15

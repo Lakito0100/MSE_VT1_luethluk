@@ -37,11 +37,11 @@ class RefGeomParams:
 
 class Refrigerant:
     """Refrigerant-side model including wall and condenser coupling."""
-    def __init__(self,geometry, geom_params: RefGeomParams, cfg, HP, path_variant="row_serpentine"):
+    def __init__(self,geometry, geom_params: RefGeomParams, cfg, HP, path_variant="serpentine"):
         self.geometry = geometry
         self.geom = geom_params
         self.fluid = cfg.ref_str
-        self.AS = CP.AbstractState("HEOS", self.fluid)  # or "BICUBIC&HEOS", "TTSE&HEOS", etc.
+        self.AS = CP.AbstractState("HEOS", self.fluid)  # created once, reused by compressor_model
         self.connection_path = geometry.build_connection_path(variant=path_variant)
         self._path_ix = np.array([ix for ix, iy in self.connection_path], dtype=int)
         self._path_iy = np.array([iy for ix, iy in self.connection_path], dtype=int)
@@ -63,7 +63,7 @@ class Refrigerant:
             self,
             fluid=self.fluid,
             P_min=1e4, P_max=30e5, dP=1e4,
-            H_min=2e5, H_max=1e6, dH=1e3,
+            H_min=1.5e5, H_max=1e6, dH=1e3,  # 150 kJ/kg = sat. liquid at about -38.5 °C (0.55 bar)
             scheme="central",
             save_path=None,
             load_path=None,
@@ -229,11 +229,11 @@ class Refrigerant:
         tau = 2.0  # [s] Filter Time constant
         alpha = dt_eff / (tau + dt_eff)
 
-        if getattr(self, "_SH_filt", None) is None:
-            self._SH_filt = SH
+        if self._valve_SH_filt is None:
+            self._valve_SH_filt = SH
 
-        self._SH_filt = (1 - alpha) * self._SH_filt + alpha * SH
-        SH_used = self._SH_filt
+        self._valve_SH_filt = (1 - alpha) * self._valve_SH_filt + alpha * SH
+        SH_used = self._valve_SH_filt
 
         # -----------------------------
         # PI control law with simple anti-windup
@@ -278,7 +278,7 @@ class Refrigerant:
         Kv = 0.25
 
         try:
-            rho, _, _ = self.rho_and_derivs_vec(pi, hi)
+            rho, _, _ = self.rho_and_derivs(pi, hi)
         except Exception:
             return 0.0, hi
 
@@ -292,9 +292,14 @@ class Refrigerant:
         return m, ho
 
     def compressor_model(self, pi, hi, po, RPM):
+        """
+        Return (mass flow [kg/s], outlet enthalpy [J/kg]).
+        Pure function of its inputs (no state is written), so it can be called
+        from the ODE right-hand side. Power: W = m * (ho - hi).
+        """
         if RPM <= 1e-6:
             return 0.0, hi
-        TTSE = AbstractState("TTSE&HEOS", self.fluid)
+        AS = self.AS
         n = 4  # number of cylinders
         bore = 0.06  # bore [m]
         stroke = 0.042  # stroke [m]
@@ -309,17 +314,16 @@ class Refrigerant:
         eta_v = float(np.clip(eta_v, 0.05, 1.20))
         eta_is = float(np.clip(eta_is, 0.05, 0.90))
 
-        TTSE.update(HmassP_INPUTS, hi, pi)
-        s = TTSE.smass()
-        TTSE.update(PSmass_INPUTS, po, s)
-        h_is = TTSE.hmass()
-        rho, _, _ = self.rho_and_derivs_vec(pi, hi)
+        AS.update(HmassP_INPUTS, float(hi), float(pi))
+        s = AS.smass()
+        AS.update(PSmass_INPUTS, float(po), s)
+        h_is = AS.hmass()
+        rho, _, _ = self.rho_and_derivs(pi, hi)
 
         ho = hi + (h_is - hi) / eta_is
         m = RPM / 60 * Vd * eta_v * rho
 
-        self.HP.W_comp = m * (ho-hi)
-        return m, ho
+        return float(m), float(ho)
 
     def update_all_segments(
             self,
@@ -373,7 +377,7 @@ class Refrigerant:
              b_broadcast = b[np.newaxis, :N_condenser - 1]
              delta_h_broadcast = delta_h[:, np.newaxis]
              lower_tri = np.tril(np.ones((N_condenser - 2,N_condenser - 1)))
-             fill_vals = delta_h_broadcast * b_broadcast * lower_tri
+             fill_vals = -delta_h_broadcast * b_broadcast * lower_tri
              A_mat[row_e[:, None], np.arange(1,N_condenser)] += fill_vals
 
              # --- [3] Wall Energy balances ---
@@ -435,7 +439,7 @@ class Refrigerant:
             b_broadcast = b[np.newaxis, :N - 1]
             delta_h_broadcast = delta_h[:, np.newaxis]
             lower_tri = np.tril(np.ones((N - 2, N - 1)))
-            fill_vals = delta_h_broadcast * b_broadcast * lower_tri
+            fill_vals = -delta_h_broadcast * b_broadcast * lower_tri
             A_mat[row_e[:, None], np.arange(1, N)] += fill_vals
 
             x = np.linalg.solve(A_mat, b_vec)
@@ -499,6 +503,10 @@ class Refrigerant:
         h_int_cond = float(self.h_int_corr_cond())
         h_int_water = float(self.h_int_corr_water())
 
+        # Valve position: evaluated once per macro step from the state at t = time
+        # and held constant during the integration (keeps rhs free of side effects)
+        valve_pos_step = self.valve_controller(time, P_suction=P0, h_suction=h0[-1])
+
         # ----------------------------------------------------------
         # RHS
         # ----------------------------------------------------------
@@ -512,7 +520,7 @@ class Refrigerant:
             T_water = y[2+2*N + 2*N_condenser:2+2*N + 3*N_condenser]
 
             m_comp, h_out_comp = self.compressor_model(P, h[-1], P_cond, HP.RPM(t))
-            m_valve, h_out_valve = self.valve_model(P_cond, h_cond[-1], P, self.valve_controller(t, P_suction=P, h_suction=h[-1]))
+            m_valve, h_out_valve = self.valve_model(P_cond, h_cond[-1], P, valve_pos_step)
 
             # --- Evaporator: vectorised ---
             rho, rhoP, rhoh = self.rho_and_derivs_vec(P, h)
@@ -631,6 +639,9 @@ class Refrigerant:
         Q_evap = self.geometry.stacks * float(np.sum(self.h_int_corr() * gp.A_inner * (Tw_end - T_ref_evap_K)))  # [W]
         Q_cond = float(np.sum(self.h_int_corr_water() * (HP.A_plate / N_condenser) * (T_wall_end - T_water_end)))  # [W]
 
+        m_comp_end, h_out_comp_end = self.compressor_model(P_end, float(h_end[-1]), P_cond_end, HP.RPM(t1))
+        W_comp = m_comp_end * (h_out_comp_end - float(h_end[-1]))  # [W]
+
         # Console output
         n_inner = inner_steps
         ref_time = cycl_t1_ref - cycl_t0_ref
@@ -702,6 +713,8 @@ class Refrigerant:
                 x_out = float(PropsSI("Q", "P", P_end, "H", h_k, fluid))
             except ValueError:
                 x_out = float("nan")
+            if not (0.0 <= x_out <= 1.0):
+                x_out = float("nan")  # single phase (CoolProp returns -1)
 
             cfg.p_ref = P_end
             cfg.h_ref = h_k
@@ -715,12 +728,14 @@ class Refrigerant:
         HP.T_water = T_water_end - 273.15
         HP.Q_evap = Q_evap
         HP.Q_cond = Q_cond
+        HP.W_comp = W_comp
 
         return n_inner
 
 
     def reset_integrator(self):
         self._bdf = None
+        self._bdf_dim = None
 
         self.valve_pos = None
         self._valve_I = 0.0
