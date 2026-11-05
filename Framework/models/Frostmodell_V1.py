@@ -44,6 +44,22 @@ def w_sat_vec(Tf_C, p_Pa):
     return float(w) if np.ndim(Tf_C) == 0 else w
 
 
+# Lower bound of the frost density [kg/m^3] (= initial frost density of the model).
+RHO_FROST_MIN = 25.0
+
+
+def frost_density(T_surface_C, T_wall_C):
+    """
+    Frost density [kg/m^3] after Hermes et al. (2009):
+        rho = 207 * exp(0.266*T_surface - 0.0615*T_wall)
+    The correlation was fitted for wall temperatures of about -16 ... -4 °C.
+    Below that it predicts unphysically light frost (~5 kg/m^3 at -20 °C), which
+    makes a small deposited mass grow into a very thick layer. The result is
+    therefore limited to RHO_FROST_MIN.
+    """
+    return max(207.0 * np.exp(0.266 * T_surface_C - 0.0615 * T_wall_C), RHO_FROST_MIN)
+
+
 def _solve_tridiag(lower, main, upper, b):
     """Solve A x = b for tridiagonal A (lower[i] = A[i+1, i], upper[i] = A[i, i+1])."""
     ab = np.zeros((3, main.size))
@@ -302,7 +318,7 @@ class Frostmodell_Edge:
 
         # rho_e update
         for i in range(gs.nr):
-            st.rho_e[i, j] = 207*np.exp(0.266*st.T_e[-1,j] - 0.0615*cfg.T_tube)
+            st.rho_e[i, j] = frost_density(st.T_e[-1,j], cfg.T_tube)
 
         # s_e update
         rho_fs = st.rho_e[-1, j]
@@ -461,7 +477,7 @@ class Frostmodell_Edge:
         # rho_e update
         for j in range(ntheta):
             for i in range(N):
-                st.rho_e[i, j] = 207*np.exp(0.266*st.T_e[-1,j] - 0.0615*cfg.T_tube)
+                st.rho_e[i, j] = frost_density(st.T_e[-1,j], cfg.T_tube)
 
         # s_e update
         for j in range(ntheta):
@@ -766,7 +782,7 @@ class Frostmodell_Finn_and_Tube:
         st.w_ft = w_f_new.copy()
 
         for i in range(N):
-            st.rho_ft[i] = 207*np.exp(0.266*st.T_ft[-1] - 0.0615*cfg.T_tube)
+            st.rho_ft[i] = frost_density(st.T_ft[-1], cfg.T_tube)
 
         # Thickness growth at the surface
         Tfs = st.T_ft[-1]
