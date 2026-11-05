@@ -9,17 +9,23 @@ reacting to the growing blockage, temperature changes on the air side, and the
 refrigerant cycle / valve controller reacting to speed and condenser changes.
 
   t [min]   inlet air              water inlet   compressor
-  0 - 10    +2 °C, RH 0.60         30 °C         start-up ramp to 1000 1/min
-  10        RH -> 0.90 (1 min)                                  heavy frost
+  0 - 10    +2 °C, RH 0.50         30 °C         start-up ramp to 1000 1/min
+  10        RH -> 0.80 (1 min)                                  heavy frost
+  20        RH -> 0.60 (1 min)
   25                                             1000 -> 800 1/min
   30        -> -5 °C (2 min)                                    colder air
   40                                             800 -> 1200 1/min
-  45        -> -10 °C, RH 0.70 (2 min)                          slow frost
+  45        -> -10 °C (2 min)                                   slow frost
   52                               30 -> 35 °C (2 min)
-  60        -> +3 °C, RH 0.95 (3 min)                           very humid air
+  60        -> +3 °C, RH 0.85 (3 min)                           very humid air
+  70        RH -> 0.40 (2 min)                                  dry air
   75                                             1200 -> 1000 1/min
   80                               35 -> 30 °C (2 min)
   90        end
+
+The moisture load is chosen so that the frost stays below the blocking limit
+(0.95 * fin_gap / 2): with RH 0.9 for 35 min the fins block after ~59 min
+(growing frost -> less fan air flow -> colder evaporator -> faster frost).
 """
 from pathlib import Path
 import sys
@@ -41,7 +47,7 @@ plots = False
 #air
 T_a = 2.0
 P = 101325
-RH = 0.6
+RH = 0.5
 v_a = 1.2
 w_amb_in = HAPropsSI('W','T',T_a+273.15,'P',P,'R', RH)
 rho_amb_in = 1.0 / HAPropsSI("Vha","T",T_a+273.15,"P",P,"R",RH)
@@ -101,8 +107,9 @@ gs = GridShape(
     # Schedules [(t [s], value), ...]: piecewise linear, last value held
     T_a_schedule = [(0.0, 2.0), (30*60.0, 2.0), (32*60.0, -5.0), (45*60.0, -5.0),
                     (47*60.0, -10.0), (60*60.0, -10.0), (63*60.0, 3.0)],
-    RH_schedule = [(0.0, 0.60), (10*60.0, 0.60), (11*60.0, 0.90), (45*60.0, 0.90),
-                   (47*60.0, 0.70), (60*60.0, 0.70), (63*60.0, 0.95)],
+    RH_schedule = [(0.0, 0.50), (10*60.0, 0.50), (11*60.0, 0.80), (20*60.0, 0.80),
+                   (21*60.0, 0.60), (60*60.0, 0.60), (63*60.0, 0.85), (70*60.0, 0.85),
+                   (72*60.0, 0.40)],
 )
 
 cfg = CaseConfig(
