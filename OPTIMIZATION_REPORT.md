@@ -1,6 +1,57 @@
 # Simulation speed: measurements and optimization options
 
-## 0. Status: implemented optimizations
+## Second round: bit-identical optimizations
+
+Rule for this round: the results of the four example cases must not change at all. Every change was
+checked bitwise against the `master` code (a copy from git):
+- table lookups on 4000 × 164 values,
+- the refrigerant right-hand side and the full 172 × 172 Jacobian,
+- 300 frost-solver steps on six segments with different iteration counts, sublimation and a step change,
+- Case 1 and a 7.5-min frost run (CSV and all grid snapshots).
+
+At the end, all four cases were rerun at full length: **every `results_case_N.csv` is byte-identical to the
+committed file.**
+
+| Change | Where | Why it is exact |
+|---|---|---|
+| One fused lookup of ρ, ∂ρ/∂p, ∂ρ/∂h, T that calls the compiled helpers of `RegularGridInterpolator` (`find_indices`, `evaluate_linear_2d`) directly; replaces four lookup functions | `refrigerant_modell_V2._lookup` | Same compiled routines, without the per-call Python overhead; falls back to the interpolator for NaN input or another SciPy version |
+| Right-hand side for many states at once, BDF with `vectorized=True`: the 141 Jacobian columns take one call instead of 141. Evaporator and condenser share one batched balance builder (`flow_system`) | `refrigerant_modell_V2.update_all_segments` | Same expressions and operation order; row sums along contiguous axes and batched `gesv` checked to equal the 1-D versions bitwise |
+| Compressor/valve evaluated once per distinct input in a batch | same | Same function, same inputs |
+| `PropsSI` (≈450 µs per call) replaced by the existing `AbstractState` (≈12 µs) for T, quality and T_sat in the time loop | `Refrigerant.props_PH`, `T_sat` | Bitwise equal on 3000 states incl. two-phase |
+| Frost of a whole row solved at once: one shared Picard iteration `_picard_rows` for the edge and fin/tube models. Each segment keeps its own relaxation factor and convergence; loop invariants computed once; LAPACK `gtsv` called directly | `Frostmodell_V1.py`, `simulator_V2.py` (row phases: frost condition → row solves → air) | Same per-segment iteration; `exp`/`pow` of the saturation formula checked equal for all array lengths |
+| Surface fluxes computed once per segment (`segment_flows`) instead of twice | `Frostmodell_V1.py` | Same formulas |
+
+**Run times** (4-core cloud container, all four cases running at the same time, `OPENBLAS_NUM_THREADS=1`):
+
+| Case | Thesis code (your PC) | After round 1 | **After round 2** |
+|---|---|---|---|
+| 1, 10 min | 6.5 min | 2.5 min | **0.3 min** |
+| 2, 60 min | 570.5 min | 31.4 min | **3.3 min** |
+| 3, 60 min | 700.7 min | 38.6 min | **4.0 min** |
+| 4, 90 min | – | 73.4 min | **8.5 min** |
+
+Same machine and load (two runs at a time), `master` vs. this round: Case 1 107 s → 17 s, 7.5-min frost
+run 158 s → 26 s (≈6×). Per frost step: ~0.56 s → ~0.07 s.
+
+**Code size:** `Framework/` 4901 → 4098 lines (−803). `Frostmodell_V1.py` 901 → 331,
+`refrigerant_modell_V2.py` 744 → 587, `simulator_V2.py` 576 → 500. Unused code was removed: the
+all-angles edge solver, the `q_dot_*` helpers, duplicate air-enthalpy helpers, commented-out blocks and
+four lookup functions. The per-segment entry points `New_edge_state_seg_at_90` and
+`New_finn_and_tube_state_seg` remain as one-segment wrappers.
+
+**Where the time goes now** (40 s of frost, 6.8 s in total, `master`: 52 s): 74 % refrigerant solver,
+mainly the batched LAPACK solves of the 91 × 91 condenser systems for the Jacobian; 14 % frost; the rest
+is air, recording and the console. Further speed-ups would have to change the rounding: block-solving
+the condenser (its wall and water rows are diagonal), a sparse or analytic Jacobian, or looser solver
+tolerances. They are not compatible with bit-identical results.
+
+**Reproducibility note:** bitwise reproduction requires the same BLAS thread setting as the reference
+run (`OPENBLAS_NUM_THREADS=1` for the committed results), because multi-threaded BLAS changes the rounding
+in the linear solves.
+
+---
+
+## 0. Status: implemented optimizations (first round)
 
 O1, O2, O3 and O8 below are implemented. O5 was tested and not adopted. Sections 1–3 are the original
 analysis; their numbers refer to the code before these changes.
