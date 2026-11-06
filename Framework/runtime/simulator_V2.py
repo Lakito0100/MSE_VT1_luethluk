@@ -13,7 +13,6 @@ import re
 from datetime import datetime
 import copy
 import numpy as np
-from CoolProp.CoolProp import PropsSI
 import io
 from contextlib import redirect_stdout
 import threading
@@ -417,8 +416,8 @@ class Simulator:
                 [float(p4_valve_out), float(h4_valve_out)],
             ]
 
-            T = float(PropsSI("T", "P", p1_suction, "H", h1_suction, cfg.ref_str))
-            T_sat = float(PropsSI("T", "P", p1_suction, "Q", 0, cfg.ref_str))
+            T = float(self.refrigerant.props_PH(p1_suction, h1_suction)[0])
+            T_sat = float(self.refrigerant.T_sat(p1_suction))
             SH = T-T_sat
 
             model_e_loc, model_ft_loc = _get_thread_models()

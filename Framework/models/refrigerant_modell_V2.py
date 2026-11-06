@@ -10,7 +10,7 @@ except ImportError:
 import CoolProp.CoolProp as CP
 from CoolProp.CoolProp import PropsSI
 from Framework.models.derivatives_of_rho import drho_dP_dH, DEFAULT_TABLE_CACHE_DIR
-from CoolProp.CoolProp import AbstractState, PSmass_INPUTS, HmassP_INPUTS
+from CoolProp.CoolProp import PSmass_INPUTS, HmassP_INPUTS, PQ_INPUTS
 
 
 @dataclass
@@ -90,6 +90,16 @@ class Refrigerant:
         T_sat_vec = PropsSI("T", "P", self._P_vec, "Q", 1.0, self.fluid).astype(float)
         self._T_sat_interp = interp1d(self._P_vec, T_sat_vec, kind="linear",
                                       bounds_error=False, fill_value="extrapolate")
+
+    def props_PH(self, P, h):
+        """(T [K], quality [-], -1 if single phase) at (P, h); same values as PropsSI, ~40x faster."""
+        self.AS.update(HmassP_INPUTS, float(h), float(P))
+        return self.AS.T(), self.AS.Q()
+
+    def T_sat(self, P):
+        """Saturation temperature [K] at P; same value as PropsSI("T", "P", P, "Q", 0, fluid)."""
+        self.AS.update(PQ_INPUTS, float(P), 0.0)
+        return self.AS.T()
 
     def _lookup(self, P, h, names=("rho", "drho_dP", "drho_dH", "T")):
         """
@@ -184,8 +194,6 @@ class Refrigerant:
         # -----------------------------
         # Compute SH = T_suction - T_sat(P_suction)
         # -----------------------------
-        fluid = self.fluid
-
         # T_suction [K]
         T_suction = float(self._lookup(P_suction, h_suction, ("T",))[0])
 
@@ -307,7 +315,6 @@ class Refrigerant:
             dt: float,
     ):
 
-        fluid = cfg_inlet.ref_str
         gp = self.geom
         HP = self.HP
         path = self.connection_path
@@ -507,7 +514,8 @@ class Refrigerant:
         T_water_end = y_end[2 + 2 * N + 2 * N_condenser:2 + 2 * N + 3 * N_condenser]
 
         # Heat flows
-        T_ref_evap_K = np.array([PropsSI("T", "P", P_end, "H", float(hk), fluid) for hk in h_end], dtype=float)
+        TQ_end = np.array([self.props_PH(P_end, hk) for hk in h_end])  # temperature and quality per segment
+        T_ref_evap_K = TQ_end[:, 0]
 
         Q_evap = self.geometry.stacks * float(np.sum(self.h_int_corr() * gp.A_inner * (Tw_end - T_ref_evap_K)))  # [W]
         Q_cond = float(np.sum(self.h_int_corr_water() * (HP.A_plate / N_condenser) * (T_wall_end - T_water_end)))  # [W]
@@ -519,49 +527,19 @@ class Refrigerant:
         n_inner = inner_steps
         ref_time = cycl_t1_ref - cycl_t0_ref
 
-        def fmt_sh_sc(P, h, fluid, kind: str) -> str:
-            """
-            kind: "evap" -> report superheat (SH)
-                  "cond" -> report subcooling (SC)
-            """
-            P = float(P)
-            h = float(h)
-
-            # actual temperature from (P,h)
-            T = float(PropsSI("T", "P", P, "H", h, fluid))
-            # saturation temperature at this pressure
-            T_sat = float(PropsSI("T", "P", P, "Q", 0, fluid))  # same as Q=1
-
-            # Try quality -> only defined in 2-phase region
-            x = None
-            try:
-                x_try = float(PropsSI("Q", "P", P, "H", h, fluid))
-                if np.isfinite(x_try) and 0.0 <= x_try <= 1.0:
-                    x = x_try
-            except Exception:
-                pass
-
-            if x is not None:
-                # two-phase: no meaningful SH/SC
-                return f"TP(x={x:.3f}, Tsat={T_sat - 273.15:.2f}°C, T={T - 273.15:.2f}°C)"
-            else:
-                # single-phase: use temperature distance to saturation
-                if kind == "evap":
-                    SH = T - T_sat
-                    if SH >= 0:
-                        return f"SH={SH:.2f}K (Tsat={T_sat - 273.15:.2f}°C, T={T - 273.15:.2f}°C)"
-                    else:
-                        return f"NO-SH(subcooled?)={(-SH):.2f}K (Tsat={T_sat - 273.15:.2f}°C, T={T - 273.15:.2f}°C)"
-                else:  # "cond"
-                    SC = T_sat - T
-                    if SC >= 0:
-                        return f"SC={SC:.2f}K (Tsat={T_sat - 273.15:.2f}°C, T={T - 273.15:.2f}°C)"
-                    else:
-                        return f"NO-SC(superheated?)={(-SC):.2f}K (Tsat={T_sat - 273.15:.2f}°C, T={T - 273.15:.2f}°C)"
+        def fmt_sh_sc(P, h, kind):
+            """Console text of a heat exchanger exit: quality if two-phase, else superheat / subcooling."""
+            T, x = self.props_PH(P, h)
+            T_sat = self.T_sat(P)
+            temps = f"Tsat={T_sat - 273.15:.2f}°C, T={T - 273.15:.2f}°C"
+            if 0.0 <= x <= 1.0:
+                return f"TP(x={x:.3f}, {temps})"
+            d, (name, other) = (T - T_sat, ("SH", "NO-SH(subcooled?)")) if kind == "evap" else (T_sat - T, ("SC", "NO-SC(superheated?)"))
+            return f"{name}={d:.2f}K ({temps})" if d >= 0 else f"{other}={-d:.2f}K ({temps})"
 
         # HX exits: evap outlet is last segment (suction to compressor), cond outlet is last segment (to valve)
-        evap_exit = fmt_sh_sc(P_end, h_end[-1], fluid, kind="evap")
-        cond_exit = fmt_sh_sc(P_cond_end, h_cond_end[-1], fluid, kind="cond")
+        evap_exit = fmt_sh_sc(P_end, h_end[-1], "evap")
+        cond_exit = fmt_sh_sc(P_cond_end, h_cond_end[-1], "cond")
 
         valve_pos_current = self.valve_pos
 
@@ -578,16 +556,9 @@ class Refrigerant:
             h_k = float(h_end[k])
             Tw_C = float(Tw_end[k] - 273.15)
 
-            # Derived outputs
-            T_ref_K = float(T_ref_evap_K[k])  # same PropsSI(T, P_end, h_k) as computed above
-            T_ref_C = T_ref_K - 273.15
-
-            try:
-                x_out = float(PropsSI("Q", "P", P_end, "H", h_k, fluid))
-            except ValueError:
-                x_out = float("nan")
-            if not (0.0 <= x_out <= 1.0):
-                x_out = float("nan")  # single phase (CoolProp returns -1)
+            # Derived outputs (quality NaN for single phase, where CoolProp returns -1)
+            T_ref_C = float(T_ref_evap_K[k]) - 273.15
+            x_out = float(TQ_end[k, 1]) if 0.0 <= TQ_end[k, 1] <= 1.0 else float("nan")
 
             cfg.p_ref = P_end
             cfg.h_ref = h_k
