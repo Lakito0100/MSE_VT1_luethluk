@@ -5,7 +5,7 @@ from scipy.integrate import solve_ivp, BDF
 from scipy.interpolate import interp1d
 import CoolProp.CoolProp as CP
 from CoolProp.CoolProp import PropsSI
-from Framework.models.derivatives_of_rho import drho_dP_dH
+from Framework.models.derivatives_of_rho import drho_dP_dH, DEFAULT_TABLE_CACHE_DIR
 from CoolProp.CoolProp import AbstractState, PSmass_INPUTS, HmassP_INPUTS
 
 
@@ -67,6 +67,7 @@ class Refrigerant:
             scheme="central",
             save_path=None,
             load_path=None,
+            cache_dir=DEFAULT_TABLE_CACHE_DIR,  # reuse the CoolProp grids between runs
         )
         self._rho_interp = out["rho_interp"]
         self._drho_dP_interp = out["drho_dP_interp"]
@@ -555,7 +556,7 @@ class Refrigerant:
                 P=P_cond,
                 h=h_cond,
                 T=T_water,
-                T_in_water=HP.T_in_water+273.15,
+                T_in_water=HP.T_in_water_at(t)+273.15,
                 h_in=h_out_comp,
                 m_in=m_comp,
                 m_out=m_valve,

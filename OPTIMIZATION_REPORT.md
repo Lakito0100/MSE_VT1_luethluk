@@ -1,10 +1,84 @@
 # Simulation speed: measurements and optimization options
 
-Nothing in this report is implemented. It lists where the time goes and what would make the
-simulation significantly faster, with measured numbers where possible. All measurements are on the
-fixed code of this branch, in a 4-core cloud container (Python 3.13, pinned `requirements.txt`). Some
-runs shared the CPU with other simulations, so treat absolute times as indicative. The ratios
-(A vs. B under the same conditions) are what matter.
+## 0. Status: implemented optimizations
+
+O1, O2, O3 and O8 below are implemented. O5 was tested and not adopted. Sections 1–3 are the original
+analysis; their numbers refer to the code before these changes.
+
+| # | Change | Where |
+|---|---|---|
+| O1 | Segments run one after another instead of in a `ThreadPoolExecutor` | `runtime/simulator_V2.py` |
+| O2 | Adaptive under-relaxation: start with `OMEGA_T_START = 0.8`, halve whenever the residual grows, never below the previous fixed 0.1. Same tolerance, so the converged results are unchanged | `models/Frostmodell_V1.py` (fin/tube and 90° edge solver) |
+| O3 | Tridiagonal `solve_banded` instead of CSR + `spsolve`; vectorised saturation humidity (`p_ws_Pa`, the IAPWS equations CoolProp uses: identical below 0 °C, < 1e-4 above) instead of one CoolProp call per node | `models/Frostmodell_V1.py` |
+| O8 | CoolProp grids of the property tables cached in `~/.cache/mse_vt1_framework` (keyed by fluid, ranges and CoolProp version; written atomically) | `models/derivatives_of_rho.py`, `refrigerant_modell_V2.py` |
+
+Bug fixed on the way: `drho_dP_dH(load_path=...)` failed because `T_interp` was never defined in that
+branch.
+
+**Measured effect**
+
+| Measurement | Before | After |
+|---|---|---|
+| Fin/tube + edge frost solve per segment and step (150 s of frost growth incl. a jump in boundary conditions) | 54.8 ms, ~70 iterations | **1.8 ms**, ~7 iterations, identical results (6 significant digits) |
+| 40 s with frost on all 40 segments | 579 s (thread pool), 226 s (serial) | **52 s** |
+| 7.5-min frost reference run (humidity step at 5 min, temperature ramp at 6 min) | 68 min | **6 min**; all quantities within 0.3 %, frost thickness within 0.04 % |
+| `Simulator()` start-up | 13.7 s | **0.03 s** (from the second run on) |
+| Case 1 (no frost) | – | identical results (deviation 0.000 %) |
+
+**Example cases, full length** (before: `Simulation_time.png` of the original runs on your machine; after:
+this branch in the 4-core cloud container, with Cases 2 and 3 running in parallel to other simulations):
+
+| Case | Simulated | Before | After | Speed-up |
+|---|---|---|---|---|
+| 1 (F0), no frost | 10 min | 6.5 min | 2.5 min | ~2.6× (start-up cache; no frost to speed up) |
+| 2 (F1), frost | 60 min | 570.5 min | **31.4 min** | **~18×** |
+| 3 (F2), frost + temperature ramp | 60 min | 700.7 min | **38.6 min** | **~18×** |
+| 4 (F3), new, 90 min of changing conditions | 90 min | – | **73.4 min** | – (not run before) |
+
+The machines differ, so these ratios are indicative. The same-machine comparisons above (frost solver
+×30, frost reference run ×11) are the precise numbers.
+
+**O5 (larger `dt_max`) was not adopted.** Against the 7.5-min frost reference:
+
+| dt_max | 0.5 s | 1 s | 2 s |
+|---|---|---|---|
+| Steps | 1221 | 825 | 630 |
+| Max frost thickness at the end | 0.02 % | 5.6 % | 7.0 % |
+| Q_evap, max deviation | 0.26 % | 2.6 % | 1.9 % |
+
+The frost thickness deviates by more than the 1 % limit, so the default stays at 0.5 s. `GridShape.dt_max`
+can still be raised for quick studies.
+
+**Where the time goes now** (profile of the 40 s frost run, 52 s in total):
+
+- **78 %: refrigerant solver** (`update_all_segments`). About 70 % of its time is the numerical Jacobian of
+  the BDF solver: ~1.5 Jacobians per time step, each needing one RHS evaluation per state (141 states),
+  so ~295 RHS evaluations per step.
+  - ~28 % of the total runtime is `RegularGridInterpolator` for the property tables (385 000 calls at
+    ~38 µs, mostly argument checking).
+  - ~13 % is the compressor model (two HEOS state updates per RHS evaluation).
+- **19 %: frost and air** for all 40 segments (was > 95 % before).
+
+**Next options, not implemented:**
+- **Analytic or vectorised Jacobian:** Jacobian columns in one vectorised RHS call (`vectorized=True`)
+  or partly analytic. Largest remaining gain (×3–5 on the refrigerant part), but a significant change.
+- **One fused bilinear lookup** of ρ, ∂ρ/∂p, ∂ρ/∂h and T instead of four `RegularGridInterpolator` calls
+  (measured 1.4–2× per call; about −20 % total).
+- **Solver tolerances** (`rtol=1e-6`, `atol=1e-8` on states of order 1e5–1e6): looser values mean fewer
+  steps and Jacobians. Needs the same validation as O5.
+- O4, O6, O7 from section 2 still apply. They now only affect the remaining ~19 %.
+- When running several simulations in parallel, set `OPENBLAS_NUM_THREADS=1`. Otherwise every process
+  starts one BLAS thread per core and they slow each other down.
+
+---
+
+*Original analysis (before the optimizations):*
+
+This report lists where the time goes and what would make the simulation significantly faster, with
+measured numbers where possible. All measurements are on the fixed code of this branch, in a 4-core
+cloud container (Python 3.13, pinned `requirements.txt`). Some runs shared the CPU with other
+simulations, so treat absolute times as indicative. The ratios (A vs. B under the same conditions) are
+what matter.
 
 ## 1. Where the time goes
 
