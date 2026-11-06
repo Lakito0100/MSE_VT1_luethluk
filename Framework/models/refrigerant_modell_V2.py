@@ -3,10 +3,14 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.integrate import solve_ivp, BDF
 from scipy.interpolate import interp1d
+try:  # compiled helpers of RegularGridInterpolator (fallback: the interpolator itself)
+    from scipy.interpolate._rgi_cython import find_indices as _find_indices, evaluate_linear_2d as _evaluate_linear_2d
+except ImportError:
+    _find_indices = _evaluate_linear_2d = None
 import CoolProp.CoolProp as CP
 from CoolProp.CoolProp import PropsSI
 from Framework.models.derivatives_of_rho import drho_dP_dH, DEFAULT_TABLE_CACHE_DIR
-from CoolProp.CoolProp import AbstractState, PSmass_INPUTS, HmassP_INPUTS
+from CoolProp.CoolProp import PSmass_INPUTS, HmassP_INPUTS, PQ_INPUTS
 
 
 @dataclass
@@ -69,72 +73,48 @@ class Refrigerant:
             load_path=None,
             cache_dir=DEFAULT_TABLE_CACHE_DIR,  # reuse the CoolProp grids between runs
         )
-        self._rho_interp = out["rho_interp"]
-        self._drho_dP_interp = out["drho_dP_interp"]
-        self._drho_dH_interp = out["drho_dH_interp"]
-        self._T_interp = out.get("T_interp", None)
-        self._T_sat_interp = None
+        # Bilinear tables on the (P, h) grid: density, its derivatives and temperature
+        self._interp = {"rho": out["rho_interp"], "drho_dP": out["drho_dP_interp"],
+                        "drho_dH": out["drho_dH_interp"], "T": out["T_interp"]}
+        self._grid = out["rho_interp"].grid
+        # RegularGridInterpolator uses its compiled 2-D path only for these tables
+        self._fast = {k: _find_indices is not None and v.values.ndim == 2 and v.values.dtype == np.float64
+                      and v.values.flags.writeable and v.values.dtype.byteorder == "="
+                      for k, v in self._interp.items()}
 
         # Clipping bounds (so the interpolator does not return NaN)
-        self._P_min = float(out["P_vec"][0])
-        self._P_max = float(out["P_vec"][-1])
-        self._H_min = float(out["H_vec"][0])
-        self._H_max = float(out["H_vec"][-1])
+        self._P_min, self._P_max = float(out["P_vec"][0]), float(out["P_vec"][-1])
+        self._H_min, self._H_max = float(out["H_vec"][0]), float(out["H_vec"][-1])
 
         self._P_vec = np.asarray(out["P_vec"], dtype=float)
-        if self._P_vec.size:
-            T_sat_vec = PropsSI("T", "P", self._P_vec, "Q", 1.0, self.fluid).astype(float)
-            self._T_sat_interp = interp1d(
-                self._P_vec,
-                T_sat_vec,
-                kind="linear",
-                bounds_error=False,
-                fill_value="extrapolate",
-            )
+        T_sat_vec = PropsSI("T", "P", self._P_vec, "Q", 1.0, self.fluid).astype(float)
+        self._T_sat_interp = interp1d(self._P_vec, T_sat_vec, kind="linear",
+                                      bounds_error=False, fill_value="extrapolate")
 
-    def T_from_PH(self, p_i, h_i):
-        p = float(np.clip(p_i, self._P_min, self._P_max))
-        h = float(np.clip(h_i, self._H_min, self._H_max))
-        return float(self._T_interp([[p, h]])[0])
+    def props_PH(self, P, h):
+        """(T [K], quality [-], -1 if single phase) at (P, h); same values as PropsSI, ~40x faster."""
+        self.AS.update(HmassP_INPUTS, float(h), float(P))
+        return self.AS.T(), self.AS.Q()
 
-    def rho_and_derivs(self, p_i, h_i):
-        p = float(np.clip(p_i, self._P_min, self._P_max))
-        h = float(np.clip(h_i, self._H_min, self._H_max))
-        pt = np.array([[p, h]], dtype=float)
+    def T_sat(self, P):
+        """Saturation temperature [K] at P; same value as PropsSI("T", "P", P, "Q", 0, fluid)."""
+        self.AS.update(PQ_INPUTS, float(P), 0.0)
+        return self.AS.T()
 
-        rho  = float(self._rho_interp(pt)[0])
-        drhodp = float(self._drho_dP_interp(pt)[0])
-        drhodh = float(self._drho_dH_interp(pt)[0])
-
-        return rho, drhodp, drhodh
-
-    def rho_and_derivs_vec(self, P, h_vec):
-        P = float(np.clip(P, self._P_min, self._P_max))
-        h = np.asarray(h_vec, dtype=float)
-        h = np.clip(h, self._H_min, self._H_max)
-
-        pts = np.column_stack([np.full_like(h, P, dtype=float), h])  # shape (N,2)
-
-        rho = self._rho_interp(pts).astype(float)
-        rhoP = self._drho_dP_interp(pts).astype(float)
-        rhoh = self._drho_dH_interp(pts).astype(float)
-
-        return rho, rhoP, rhoh
-
-    def T_from_PH_vec(self, P, h_vec):
-        P = float(np.clip(P, self._P_min, self._P_max))
-        h = np.asarray(h_vec, dtype=float)
-        h = np.clip(h, self._H_min, self._H_max)
-
-        if self._T_interp is None:
-            # PropsSI can handle arrays; P must match h length
-            P_arr = np.full_like(h, P, dtype=float)
-            return PropsSI("T", "P", P_arr, "H", h, self.fluid).astype(float)
-
-        pts = np.column_stack([np.full_like(h, P, dtype=float), h])
-        T = self._T_interp(pts).astype(float)
-
-        return T
+    def _lookup(self, P, h, names=("rho", "drho_dP", "drho_dH", "T")):
+        """
+        Table values at (P, h), clipped to the table range; P and h broadcast.
+        Returns one array per name. The grid search is done once for all tables, with
+        the same compiled routines RegularGridInterpolator uses (identical results).
+        """
+        P, h = np.broadcast_arrays(np.clip(P, self._P_min, self._P_max),
+                                   np.clip(np.asarray(h, dtype=float), self._H_min, self._H_max))
+        xi = np.column_stack([P.ravel(), h.ravel()]).astype(float)
+        if not np.isfinite(xi).all() or not all(self._fast[n] for n in names):
+            return [self._interp[n](xi).reshape(P.shape) for n in names]
+        idx, dist = _find_indices(self._grid, xi.T)
+        return [_evaluate_linear_2d(self._interp[n].values, idx, dist, self._grid,
+                                    np.empty(len(xi))).reshape(P.shape) for n in names]
 
     # ------------------------------------------------------------------
     # Local correlation for h_int (wall ↔ refrigerant heat transfer)
@@ -214,10 +194,8 @@ class Refrigerant:
         # -----------------------------
         # Compute SH = T_suction - T_sat(P_suction)
         # -----------------------------
-        fluid = self.fluid
-
         # T_suction [K]
-        T_suction = float(self.T_from_PH_vec(P_suction, np.array([h_suction], dtype=float))[0])
+        T_suction = float(self._lookup(P_suction, h_suction, ("T",))[0])
 
         # T_sat [K]
         T_sat = float(self._T_sat_interp(P_suction))
@@ -279,7 +257,7 @@ class Refrigerant:
         Kv = 0.25
 
         try:
-            rho, _, _ = self.rho_and_derivs(pi, hi)
+            rho = float(self._lookup(pi, hi, ("rho",))[0])
         except Exception:
             return 0.0, hi
 
@@ -319,7 +297,7 @@ class Refrigerant:
         s = AS.smass()
         AS.update(PSmass_INPUTS, float(po), s)
         h_is = AS.hmass()
-        rho, _, _ = self.rho_and_derivs(pi, hi)
+        rho = float(self._lookup(pi, hi, ("rho",))[0])
 
         ho = hi + (h_is - hi) / eta_is
         m = RPM / 60 * Vd * eta_v * rho
@@ -337,118 +315,39 @@ class Refrigerant:
             dt: float,
     ):
 
-        fluid = cfg_inlet.ref_str
         gp = self.geom
         HP = self.HP
         path = self.connection_path
         N = len(path)
         N_condenser = HP.N_cond
 
-        def solve_dp_dh_condenser(P, h, T, T_in_water, h_in, m_in, m_out, m_water, Q_into_ref, Q_wall_water, V, M_water,
-                                  M_wall, rho, rhoP, rhoh):
+        lower_tri = {n: np.tril(np.ones((n - 2, n - 1))) for n in (N, N_condenser)}
 
-             a = V * rhoP
-             b = V * rhoh
-             c = V*(h*rhoP - 1.0)
-             d = V*(h*rhoh + rho)
-
-             A_mat = np.zeros((3 * N_condenser + 1, 3 * N_condenser + 1))
-             b_vec = np.zeros((3 * N_condenser + 1,))
-
-             # --- [1] Total Mass and Energy balances ---
-             idx_v = np.arange(0, N_condenser + 1)
-             # Mass
-             A_mat[0, idx_v[0]] = np.sum(a)
-             A_mat[0, idx_v[1:]] = b
-             b_vec[0] = m_in - m_out
-             # Energy
-             A_mat[1, idx_v[0]] = np.sum(c)
-             A_mat[1, idx_v[1:]] = d
-             b_vec[1] = m_in * h_in - m_out * h[-1] + np.sum(Q_into_ref)
-
-             # --- [2] Energy balances ---
-             A_mat[2, 0] = c[0] - a[0] * h[0]
-             A_mat[2, 1] = d[0] - b[0] * h[0]
-             b_vec[2] = m_in * (h_in - h[0]) + Q_into_ref[0]
-             row_e = np.arange(3, N_condenser + 1)
-             A_mat[row_e, 0] = c[1:-1] - a[1:-1] * h[1:-1] - (h[1:-1] - h[:-2]) * np.cumsum(a[:N_condenser - 2])
-             A_mat[row_e, np.arange(2,N_condenser)] = d[1:-1] - b[1:-1] * h[1:-1]
-             b_vec[row_e] = m_in * (h[:-2] - h[1:-1]) + Q_into_ref[1:-1]
-             delta_h = h[1:-1] - h[:-2]
-             b_broadcast = b[np.newaxis, :N_condenser - 1]
-             delta_h_broadcast = delta_h[:, np.newaxis]
-             lower_tri = np.tril(np.ones((N_condenser - 2,N_condenser - 1)))
-             fill_vals = -delta_h_broadcast * b_broadcast * lower_tri
-             A_mat[row_e[:, None], np.arange(1,N_condenser)] += fill_vals
-
-             # --- [3] Wall Energy balances ---
-             row_w = np.arange(N_condenser + 1, 2 * N_condenser + 1)
-             col_w = np.arange(N_condenser + 1, 2 * N_condenser + 1)
-             A_mat[row_w, col_w] = M_wall * HP.c_plate
-             b_vec[row_w] = (-Q_into_ref) - Q_wall_water
-
-             # --- [4] Secondary Fluid Energy balances ---
-             row_s = np.arange(2 * N_condenser + 1, 3 * N_condenser + 1)
-             col_s = np.arange(2 * N_condenser + 1, 3 * N_condenser + 1)
-             A_mat[row_s, col_s] = M_water * HP.c_water
-             T_prev = np.empty_like(T)
-             T_prev[0] = T_in_water
-             T_prev[1:] = T[:-1]
-             b_vec[row_s] = m_water * HP.c_water * (T_prev - T) + Q_wall_water
-
-             x = np.linalg.solve(A_mat, b_vec)
-
-             dPdt = float(x[0])
-             dhdt = x[1:1 + N_condenser].copy()
-             dT_walldt = x[N_condenser+1:2*N_condenser+1].copy()
-             dT_waterdt = x[2*N_condenser+1:3*N_condenser+1].copy()
-
-             return dPdt, dhdt, dT_walldt, dT_waterdt
-
-        def solve_dp_dh_evaporator(P, h, h_in, m_in, m_out, Q_into_ref, V, rho, rhoP, rhoh):
+        def flow_system(M, h, h_in, m_in, m_out, Q, V, rho, rhoP, rhoh):
             """
+            Mass and energy balances of a pipe with n control volumes and one pressure,
+            for k states at once (h, Q, rho, ...: shape (k, n); h_in, m_in, m_out: (k,)).
+            Unknowns [dP/dt, dh_0/dt, ..., dh_n-1/dt]; the internal mass flows are
+            eliminated. Returns A (k, M, M) and b (k, M) with rows 0 ... n filled.
             """
-
-            a = V * rhoP
-            b = V * rhoh
-            c = V*(h*rhoP - 1.0)
-            d = V*(h*rhoh + rho)
-
-            A_mat = np.zeros((N + 1, N + 1))
-            b_vec = np.zeros((N + 1,))
-
-            # --- [1] Total Mass and Energy balances ---
-            idx_v = np.arange(0, N + 1)
-            # Mass
-            A_mat[0, idx_v[0]] = np.sum(a)
-            A_mat[0, idx_v[1:]] = b
-            b_vec[0] = m_in - m_out
-            # Energy
-            A_mat[1, idx_v[0]] = np.sum(c)
-            A_mat[1, idx_v[1:]] = d
-            b_vec[1] = m_in * h_in - m_out * h[-1] + np.sum(Q_into_ref)
-
-            # --- [2] Energy balances ---
-            A_mat[2, 0] = c[0] - a[0] * h[0]
-            A_mat[2, 1] = d[0] - b[0] * h[0]
-            b_vec[2] = m_in * (h_in - h[0]) + Q_into_ref[0]
-            row_e = np.arange(3, N + 1)
-            A_mat[row_e, 0] = c[1:-1] - a[1:-1] * h[1:-1] - (h[1:-1] - h[:-2]) * np.cumsum(a[:N - 2])
-            A_mat[row_e, np.arange(2, N)] = d[1:-1] - b[1:-1] * h[1:-1]
-            b_vec[row_e] = m_in * (h[:-2] - h[1:-1]) + Q_into_ref[1:-1]
-            delta_h = h[1:-1] - h[:-2]
-            b_broadcast = b[np.newaxis, :N - 1]
-            delta_h_broadcast = delta_h[:, np.newaxis]
-            lower_tri = np.tril(np.ones((N - 2, N - 1)))
-            fill_vals = -delta_h_broadcast * b_broadcast * lower_tri
-            A_mat[row_e[:, None], np.arange(1, N)] += fill_vals
-
-            x = np.linalg.solve(A_mat, b_vec)
-
-            dPdt = float(x[0])
-            dhdt = x[1:1 + N].copy()
-
-            return dPdt, dhdt
+            k, n = h.shape
+            a, b = V * rhoP, V * rhoh
+            c, d = V*(h*rhoP - 1.0), V*(h*rhoh + rho)
+            A, rb = np.zeros((k, M, M)), np.zeros((k, M))
+            # Total mass and energy balances
+            A[:, 0, 0], A[:, 0, 1:n + 1], rb[:, 0] = np.sum(a, axis=-1), b, m_in - m_out
+            A[:, 1, 0], A[:, 1, 1:n + 1] = np.sum(c, axis=-1), d
+            rb[:, 1] = m_in * h_in - m_out * h[:, -1] + np.sum(Q, axis=-1)
+            # Energy balances of the control volumes 0 ... n-2
+            A[:, 2, 0] = c[:, 0] - a[:, 0] * h[:, 0]
+            A[:, 2, 1] = d[:, 0] - b[:, 0] * h[:, 0]
+            rb[:, 2] = m_in * (h_in - h[:, 0]) + Q[:, 0]
+            row_e = np.arange(3, n + 1)
+            A[:, row_e, 0] = c[:, 1:-1] - a[:, 1:-1] * h[:, 1:-1] - (h[:, 1:-1] - h[:, :-2]) * np.cumsum(a[:, :n - 2], axis=-1)
+            A[:, row_e, np.arange(2, n)] = d[:, 1:-1] - b[:, 1:-1] * h[:, 1:-1]
+            rb[:, row_e] = m_in[:, None] * (h[:, :-2] - h[:, 1:-1]) + Q[:, 1:-1]
+            A[:, row_e[:, None], np.arange(1, n)] += -(h[:, 1:-1] - h[:, :-2])[:, :, None] * b[:, None, :n - 1] * lower_tri[n]
+            return A, rb
 
         # ----------------------------------------------------------
         # Initial state
@@ -511,68 +410,47 @@ class Refrigerant:
         # ----------------------------------------------------------
         # RHS
         # ----------------------------------------------------------
-        def rhs(t, y):
-            P = float(y[0])
-            h = y[1:1 + N]
-            Tw = y[1 + N:1 + 2 * N]
-            P_cond = y[1 + 2*N]
-            h_cond = y[2 + 2*N:2+2*N + N_condenser]
-            T_wall = y[2+2*N + N_condenser:2+2*N + 2*N_condenser]
-            T_water = y[2+2*N + 2*N_condenser:2+2*N + 3*N_condenser]
+        def rhs(t, Y):
+            """Time derivatives for k states at once (Y: shape (n_states, k), as the BDF solver passes them)."""
+            Y = np.ascontiguousarray(Y.T)
+            k, Nc, o = Y.shape[0], N_condenser, 1 + 2 * N
+            P, h, Tw = Y[:, 0], Y[:, 1:1 + N], Y[:, 1 + N:o]
+            P_cond, h_cond = Y[:, o], Y[:, o + 1:o + 1 + Nc]
+            T_wall, T_water = Y[:, o + 1 + Nc:o + 1 + 2 * Nc], Y[:, o + 1 + 2 * Nc:o + 1 + 3 * Nc]
 
-            m_comp, h_out_comp = self.compressor_model(P, h[-1], P_cond, HP.RPM(t))
-            m_valve, h_out_valve = self.valve_model(P_cond, h_cond[-1], P, valve_pos_step)
+            # Compressor and valve: once per distinct input (most Jacobian columns share them)
+            RPM, cache, comp, valve = HP.RPM(t), {}, np.empty((k, 2)), np.empty((k, 2))
+            for j in range(k):
+                key = (Y[j, 0], Y[j, N], Y[j, o], Y[j, o + Nc])
+                if key not in cache:
+                    cache[key] = (self.compressor_model(float(Y[j, 0]), h[j, -1], P_cond[j], RPM),
+                                  self.valve_model(P_cond[j], h_cond[j, -1], float(Y[j, 0]), valve_pos_step))
+                comp[j], valve[j] = cache[key]
+            (m_comp, h_out_comp), (m_valve, h_out_valve) = comp.T, valve.T
 
-            # --- Evaporator: vectorised ---
-            rho, rhoP, rhoh = self.rho_and_derivs_vec(P, h)
-            T_ref_K = self.T_from_PH_vec(P, h)
+            # Evaporator
+            rho, rhoP, rhoh, T_ref_K = self._lookup(P[:, None], h)
+            Q_into_ref = h_int_evap * gp.A_inner * (Tw - T_ref_K)
+            dTwdt = (Qseg[ixp, iyp] - Q_into_ref) / den_wall
+            stacks = self.geometry.stacks
+            A_e, b_e = flow_system(N + 1, h, h_out_valve, m_valve / stacks, m_comp / stacks, Q_into_ref, V, rho, rhoP, rhoh)
 
-            Q_into_ref = h_int_evap * gp.A_inner * (Tw - T_ref_K)  # shape (N,)
-            Q_f = Qseg[ixp, iyp]  # shape (N,)
-            dTwdt = (Q_f - Q_into_ref) / den_wall  # shape (N,)
-
-            # Solve coupled refrigerant linear system
-            dPdt, dhdt = solve_dp_dh_evaporator(
-                P=P,
-                h=h,
-                h_in=h_out_valve,
-                m_in=m_valve/self.geometry.stacks,
-                m_out=m_comp/self.geometry.stacks,
-                Q_into_ref=Q_into_ref,
-                V=V,
-                rho=rho,
-                rhoP=rhoP,
-                rhoh=rhoh,
-            )
-
-            # --- Condenser: vectorised ---
-            rho_cond, rhoP_cond, rhoh_cond = self.rho_and_derivs_vec(P_cond, h_cond)
-            T_ref_K_cond = self.T_from_PH_vec(P_cond, h_cond)
-
+            # Condenser: refrigerant balances plus wall and water energy balances
+            rho_c, rhoP_c, rhoh_c, T_ref_K_cond = self._lookup(P_cond[:, None], h_cond)
             Q_into_ref_cond = h_int_cond * A_plate_seg * (T_wall - T_ref_K_cond)
             Q_wall_water = h_int_water * A_plate_seg * (T_wall - T_water)
+            A_c, b_c = flow_system(3 * Nc + 1, h_cond, h_out_comp, m_comp, m_valve, Q_into_ref_cond, V_cond, rho_c, rhoP_c, rhoh_c)
+            row_w, row_s = np.arange(Nc + 1, 2 * Nc + 1), np.arange(2 * Nc + 1, 3 * Nc + 1)
+            A_c[:, row_w, row_w] = M_wall * HP.c_plate
+            b_c[:, row_w] = (-Q_into_ref_cond) - Q_wall_water
+            A_c[:, row_s, row_s] = M_water * HP.c_water
+            T_prev = np.concatenate([np.full((k, 1), HP.T_in_water_at(t) + 273.15), T_water[:, :-1]], axis=1)
+            b_c[:, row_s] = HP.m_water * HP.c_water * (T_prev - T_water) + Q_wall_water
 
-            dPdt_cond, dhdt_cond, dTdt_wall_cond, dTdt_water_cond = solve_dp_dh_condenser(
-                P=P_cond,
-                h=h_cond,
-                T=T_water,
-                T_in_water=HP.T_in_water_at(t)+273.15,
-                h_in=h_out_comp,
-                m_in=m_comp,
-                m_out=m_valve,
-                m_water=HP.m_water,
-                Q_into_ref=Q_into_ref_cond,
-                Q_wall_water=Q_wall_water,
-                V=V_cond,
-                M_water=M_water,
-                M_wall=M_wall,
-                rho=rho_cond,
-                rhoP=rhoP_cond,
-                rhoh=rhoh_cond
-            )
-
-            # Pack derivative vector
-            return np.concatenate([np.array([dPdt]), dhdt, dTwdt, np.array([dPdt_cond]), dhdt_cond, dTdt_wall_cond, dTdt_water_cond])
+            # [dP, dh, dTw] evaporator, [dP, dh, dT_wall, dT_water] condenser
+            x_e = np.linalg.solve(A_e, b_e[..., None])[..., 0]
+            x_c = np.linalg.solve(A_c, b_c[..., None])[..., 0]
+            return np.concatenate([x_e, dTwdt, x_c], axis=1).T
 
         # ----------------------------------------------------------
         # Integrate
@@ -603,7 +481,8 @@ class Refrigerant:
                 t_bound=np.inf,  # we control stopping via max_step + while-loop
                 rtol=1e-6,
                 atol=1e-8,
-                max_step=np.inf
+                max_step=np.inf,
+                vectorized=True,  # Jacobian columns in one rhs call
             )
             self._bdf_dim = y0.size
 
@@ -635,7 +514,8 @@ class Refrigerant:
         T_water_end = y_end[2 + 2 * N + 2 * N_condenser:2 + 2 * N + 3 * N_condenser]
 
         # Heat flows
-        T_ref_evap_K = np.array([PropsSI("T", "P", P_end, "H", float(hk), fluid) for hk in h_end], dtype=float)
+        TQ_end = np.array([self.props_PH(P_end, hk) for hk in h_end])  # temperature and quality per segment
+        T_ref_evap_K = TQ_end[:, 0]
 
         Q_evap = self.geometry.stacks * float(np.sum(self.h_int_corr() * gp.A_inner * (Tw_end - T_ref_evap_K)))  # [W]
         Q_cond = float(np.sum(self.h_int_corr_water() * (HP.A_plate / N_condenser) * (T_wall_end - T_water_end)))  # [W]
@@ -647,49 +527,19 @@ class Refrigerant:
         n_inner = inner_steps
         ref_time = cycl_t1_ref - cycl_t0_ref
 
-        def fmt_sh_sc(P, h, fluid, kind: str) -> str:
-            """
-            kind: "evap" -> report superheat (SH)
-                  "cond" -> report subcooling (SC)
-            """
-            P = float(P)
-            h = float(h)
-
-            # actual temperature from (P,h)
-            T = float(PropsSI("T", "P", P, "H", h, fluid))
-            # saturation temperature at this pressure
-            T_sat = float(PropsSI("T", "P", P, "Q", 0, fluid))  # same as Q=1
-
-            # Try quality -> only defined in 2-phase region
-            x = None
-            try:
-                x_try = float(PropsSI("Q", "P", P, "H", h, fluid))
-                if np.isfinite(x_try) and 0.0 <= x_try <= 1.0:
-                    x = x_try
-            except Exception:
-                pass
-
-            if x is not None:
-                # two-phase: no meaningful SH/SC
-                return f"TP(x={x:.3f}, Tsat={T_sat - 273.15:.2f}°C, T={T - 273.15:.2f}°C)"
-            else:
-                # single-phase: use temperature distance to saturation
-                if kind == "evap":
-                    SH = T - T_sat
-                    if SH >= 0:
-                        return f"SH={SH:.2f}K (Tsat={T_sat - 273.15:.2f}°C, T={T - 273.15:.2f}°C)"
-                    else:
-                        return f"NO-SH(subcooled?)={(-SH):.2f}K (Tsat={T_sat - 273.15:.2f}°C, T={T - 273.15:.2f}°C)"
-                else:  # "cond"
-                    SC = T_sat - T
-                    if SC >= 0:
-                        return f"SC={SC:.2f}K (Tsat={T_sat - 273.15:.2f}°C, T={T - 273.15:.2f}°C)"
-                    else:
-                        return f"NO-SC(superheated?)={(-SC):.2f}K (Tsat={T_sat - 273.15:.2f}°C, T={T - 273.15:.2f}°C)"
+        def fmt_sh_sc(P, h, kind):
+            """Console text of a heat exchanger exit: quality if two-phase, else superheat / subcooling."""
+            T, x = self.props_PH(P, h)
+            T_sat = self.T_sat(P)
+            temps = f"Tsat={T_sat - 273.15:.2f}°C, T={T - 273.15:.2f}°C"
+            if 0.0 <= x <= 1.0:
+                return f"TP(x={x:.3f}, {temps})"
+            d, (name, other) = (T - T_sat, ("SH", "NO-SH(subcooled?)")) if kind == "evap" else (T_sat - T, ("SC", "NO-SC(superheated?)"))
+            return f"{name}={d:.2f}K ({temps})" if d >= 0 else f"{other}={-d:.2f}K ({temps})"
 
         # HX exits: evap outlet is last segment (suction to compressor), cond outlet is last segment (to valve)
-        evap_exit = fmt_sh_sc(P_end, h_end[-1], fluid, kind="evap")
-        cond_exit = fmt_sh_sc(P_cond_end, h_cond_end[-1], fluid, kind="cond")
+        evap_exit = fmt_sh_sc(P_end, h_end[-1], "evap")
+        cond_exit = fmt_sh_sc(P_cond_end, h_cond_end[-1], "cond")
 
         valve_pos_current = self.valve_pos
 
@@ -706,16 +556,9 @@ class Refrigerant:
             h_k = float(h_end[k])
             Tw_C = float(Tw_end[k] - 273.15)
 
-            # Derived outputs
-            T_ref_K = float(PropsSI("T", "P", P_end, "H", h_k, fluid))
-            T_ref_C = T_ref_K - 273.15
-
-            try:
-                x_out = float(PropsSI("Q", "P", P_end, "H", h_k, fluid))
-            except ValueError:
-                x_out = float("nan")
-            if not (0.0 <= x_out <= 1.0):
-                x_out = float("nan")  # single phase (CoolProp returns -1)
+            # Derived outputs (quality NaN for single phase, where CoolProp returns -1)
+            T_ref_C = float(T_ref_evap_K[k]) - 273.15
+            x_out = float(TQ_end[k, 1]) if 0.0 <= TQ_end[k, 1] <= 1.0 else float("nan")
 
             cfg.p_ref = P_end
             cfg.h_ref = h_k

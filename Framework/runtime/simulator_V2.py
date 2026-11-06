@@ -13,9 +13,6 @@ import re
 from datetime import datetime
 import copy
 import numpy as np
-from CoolProp.CoolProp import PropsSI
-import io
-from contextlib import redirect_stdout
 import threading
 
 class Simulator:
@@ -120,13 +117,8 @@ class Simulator:
         n_x = len(cfg_grid)
         n_y = len(cfg_grid[0])
 
-        # Frost model instances (segments are processed one after another: the
-        # solvers are Python code under the GIL, so a thread pool was ~2.5x slower)
-        _model_e = model.Frostmodell_Edge()
-        _model_ft = model.Frostmodell_Finn_and_Tube()
-
-        def _get_thread_models():
-            return _model_e, _model_ft
+        # Frost models; all frosted segments of a row are solved together
+        model_e, model_ft = model.Frostmodell_Edge(), model.Frostmodell_Finn_and_Tube()
 
         s_max = (geom.fin_gap()/2.0) * 0.95
 
@@ -182,9 +174,9 @@ class Simulator:
                     iter_ft, res_w_ft, res_T_ft, dt_ft = info["ft"]
                     parts.append(f"FT(it={iter_ft}, w={res_w_ft:.3e}, T={res_T_ft:.3e}, ct={dt_ft:.3f} s)")
 
-                # Always show air
-                T_out, w_out, p_out = info["air"]
-                parts.append(f"Air(T={T_out:.2f} °C, w={w_out:.3e} kg/kg, P={p_out:.3e} Pa)")
+                if info["air"] is not None:
+                    T_out, w_out, p_out = info["air"]
+                    parts.append(f"Air(T={T_out:.2f} °C, w={w_out:.3e} kg/kg, P={p_out:.3e} Pa)")
 
                 line = " | ".join(parts)
 
@@ -197,158 +189,91 @@ class Simulator:
                     return line + "\n" + "\n".join(extra)
                 return line
 
-            def _process_segment(ix, iy):
-                cfg = cfg_grid[ix][iy]
-                st  = st_grid[ix][iy]
-                st.t = t
-
-                # Upstream values are read-only
-                if ix == 0:
-                    cfg_up = input_cfg
-                else:
-                    cfg_up = cfg_grid[ix - 1][iy]
-
-                model_e_loc, model_ft_loc = _get_thread_models()
-
-                info = {
-                    "ix": ix,
-                    "iy": iy,
-                    "edge": None,
-                    "ft": None,
-                    "air": None,
-                    "warn": [],
-                    "stop": [],   # messages of conditions that end the simulation (always printed)
-                    "err": [],
-                    "rh_wall": 0.0,
-                    "frost_condition": False}
-
-                # ---------------- Frost condition ----------------
+            def _frost_condition(cfg, cfg_up, info):
+                """Frost forms where the air at the wall is saturated and the wall is below 0 °C."""
                 try:
-                    RH_air_at_wall = HAPropsSI("R",
-                                               "T", cfg.T_tube + 273.15,
-                                               "P", cfg_up.p_a,
-                                               "W", cfg_up.w_amb)
+                    RH_air_at_wall = HAPropsSI("R", "T", cfg.T_tube + 273.15, "P", cfg_up.p_a, "W", cfg_up.w_amb)
                 except Exception:
-                    w_sat_wall = HAPropsSI("W",
-                                           "T", cfg.T_tube + 273.15,
-                                           "P", cfg_up.p_a,
-                                           "R", 1.0)
+                    w_sat_wall = HAPropsSI("W", "T", cfg.T_tube + 273.15, "P", cfg_up.p_a, "R", 1.0)
                     RH_air_at_wall = cfg_up.w_amb / max(w_sat_wall, 1e-12)
-
                 RH_air_at_wall = max(0.0, min(1.0, RH_air_at_wall))
-
                 if RH_air_at_wall >= 0.999 and cfg.T_tube <= 0.0 and gs.cal_frost:
                     cfg.frost_condition = True
-                info["rh_wall"] = RH_air_at_wall
-                info["frost_condition"] = cfg.frost_condition
+                info["rh_wall"], info["frost_condition"] = RH_air_at_wall, cfg.frost_condition
 
-                # ---------------- Updating the edge state ----------------
-                if ix == 0 and cfg.frost_condition:
-                    t0_edge = time.perf_counter()
-                    iter_e = 0
-                    res_T_e = float("nan")
-                    res_w_e = float("nan")
-                    try:
-                        iter_e, res_T_e, res_w_e = model_e_loc.New_edge_state_seg_at_90(cfg_up, cfg, geom, st, gs)
-                        if res_T_e > 1e-6 or res_w_e > 1e-6:
-                            info["warn"].append(
-                                f"\033[93mEdge solver in segment {(ix, iy)} not converged "
-                                f"(it={iter_e}, res_T={res_T_e:.2e}, res_w={res_w_e:.2e}).\033[0m")
-                        if st.s_e[gs.ntheta - 1] >= s_max:
-                            info["stop"].append(
-                                f"\033[31mThe frost in the edge segment {(ix, iy)} is blocking the air flow, ending the simulation.\033[0m"
-                            )
-                            stop_event.set()
-                    except Exception as e:
-                        info["err"].append("\033[31mThere was an error in the calculation for the new edge state, ending the simulation.\033[0m")
-                        info["err"].append(f"\033[31m{e}\033[0m")
+            def _solve_frost_row(kind, ix, iys, ups, infos):
+                """Edge ("edge") or fin/tube ("ft") frost state of the frosted segments iys of row ix, all at once."""
+                cfgs, sts = [cfg_grid[ix][iy] for iy in iys], [st_grid[ix][iy] for iy in iys]
+                name, solver = {"edge": ("Edge", model_e.New_edge_state_row_at_90),
+                                "ft": ("Fin/tube", model_ft.New_finn_and_tube_state_row)}[kind]
+                t0_row = time.perf_counter()
+                try:
+                    results = solver([ups[iy] for iy in iys], cfgs, geom, sts, gs)
+                except Exception as e:
+                    state = "edge" if kind == "edge" else "finn and tube"
+                    for iy in iys:
+                        infos[iy]["err"] += [f"\033[31mThere was an error in the calculation for the new {state} state, ending the simulation.\033[0m",
+                                             f"\033[31m{e}\033[0m"]
+                    stop_event.set()
+                    return
+                ct = time.perf_counter() - t0_row  # time of the whole row
+                for iy, st, (iters, res_T, res_w, *neg) in zip(iys, sts, results):
+                    info = infos[iy]
+                    info[kind] = (iters, res_w, res_T, ct)
+                    if res_T > 1e-6 or res_w > 1e-6:
+                        info["warn"].append(f"\033[93m{name} solver in segment {(ix, iy)} not converged "
+                                            f"(it={iters}, res_T={res_T:.2e}, res_w={res_w:.2e}).\033[0m")
+                    if neg and neg[0]:
+                        info["warn"].append(f"\033[93mNegative moisture mass flow in segment {(ix, iy)}, m_f set to 0.\033[0m")
+                    if (st.s_e[gs.ntheta - 1] if kind == "edge" else st.s_ft) >= s_max:
+                        where = "edge segment" if kind == "edge" else "segment"
+                        info["stop"].append(f"\033[31mThe frost in the {where} {(ix, iy)} is blocking the air flow, ending the simulation.\033[0m")
                         stop_event.set()
-                    t1_edge = time.perf_counter()
-                    info["edge"] = (iter_e, res_w_e, res_T_e, t1_edge - t0_edge)
 
-                # ---------------- Updating the fin and tube state ----------------
-                if cfg.frost_condition:
-                    t0_ft = time.perf_counter()
-                    iter_ft = 0
-                    res_T_ft = float("nan")
-                    res_w_ft = float("nan")
-                    try:
-                        iter_ft, res_T_ft, res_w_ft = model_ft_loc.New_finn_and_tube_state_seg(cfg_up, cfg, geom, st, gs)
-                        if res_T_ft > 1e-6 or res_w_ft > 1e-6:
-                            info["warn"].append(
-                                f"\033[93mFin/tube solver in segment {(ix, iy)} not converged "
-                                f"(it={iter_ft}, res_T={res_T_ft:.2e}, res_w={res_w_ft:.2e}).\033[0m")
-                        if getattr(model_ft_loc, "last_negative_mass_flux", False):
-                            info["warn"].append(
-                                f"\033[93mNegative moisture mass flow in segment {(ix, iy)}, m_f set to 0.\033[0m")
-                        if st.s_ft >= s_max:
-                            info["stop"].append(
-                                f"\033[31mThe frost in the segment {(ix, iy)} is blocking the air flow, ending the simulation.\033[0m"
-                            )
-                            stop_event.set()
-                    except Exception as e:
-                        info["err"].append("\033[31mThere was an error in the calculation for the new finn and tube state, ending the simulation.\033[0m")
-                        info["err"].append(f"\033[31m{e}\033[0m")
-                        stop_event.set()
-                    t1_ft = time.perf_counter()
-                    info["ft"] = (iter_ft, res_w_ft, res_T_ft, t1_ft - t0_ft)
-
-                # ---------------- Updating the air state ----------------
-                m_dot_a = input_cfg.m_dot / (n_y*geom.stacks)
-
+            def _air(cfg, st, cfg_up, info):
+                """Heat flow into the wall (returned) and outlet air of one segment."""
+                if not cfg.frost_condition:
+                    st.T_e[:] = cfg.T_tube
+                    st.T_ft[:] = cfg.T_tube
+                m_s_seg, Q_sens_fs, Q_seg_x0, Q_steady = model_ft.segment_flows(cfg_up, geom, st, gs)
+                if not cfg.frost_condition:
+                    m_s_seg, Q_sens_fs, Q_seg_x0 = 0.0, Q_steady, Q_steady
                 if gs.cal_air:
-                    if cfg.frost_condition:
-                        m_s_seg = model_ft_loc.segment_mass_flux_air_frost(cfg_up, geom, st, gs)
-                        Q_sens_fs, Q_seg_x0, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_up, geom, st, gs)
-                        T_out, w_out, p_out = self.air.propagate_inplace(
-                            cfg_up, cfg, st.s_ft, st, geom, m_dot_a, Q_sens_fs, m_s_seg, gs.dt
-                        )
+                    info["air"] = self.air.propagate_inplace(cfg_up, cfg, st.s_ft, st, geom,
+                                                             input_cfg.m_dot / (n_y * geom.stacks), Q_sens_fs, m_s_seg, gs.dt)
+                return Q_seg_x0
 
-                        q_for_list = Q_seg_x0
-                    else:
-                        st.T_e[:] = cfg.T_tube
-                        st.T_ft[:] = cfg.T_tube
-                        Q_sens_fs, Q_seg_x0, Q_steady = model_ft_loc.segment_heat_flux_air_frost(cfg_up, geom, st, gs)
-                        T_out, w_out, p_out = self.air.propagate_inplace(
-                            cfg_up, cfg, st.s_ft, st, geom, m_dot_a, Q_steady, 0.0, gs.dt
-                        )
-
-                        q_for_list = Q_steady
-
-                    info["air"] = (T_out, w_out, p_out)
-
-                return iy, q_for_list, info
-
-            # --- Row by row in air-flow direction (ix), segments of a row one after another ---
+            # --- Row by row in air-flow direction (ix); the segments of a row are independent ---
             print_every = gs.print_output_every_x_it
             do_print = (it % print_every == 0)
 
             for ix in range(n_x):
-                infos_by_iy = [None] * n_y
+                ups = [input_cfg if ix == 0 else cfg_grid[ix - 1][iy] for iy in range(n_y)]  # upstream air
+                infos = [{"ix": ix, "iy": iy, "edge": None, "ft": None, "air": None, "warn": [],
+                          "stop": [],  # conditions that end the simulation (always printed)
+                          "err": [], "rh_wall": 0.0, "frost_condition": False} for iy in range(n_y)]
+                for iy in range(n_y):
+                    st_grid[ix][iy].t = t
+                    _frost_condition(cfg_grid[ix][iy], ups[iy], infos[iy])
+                frosted = [iy for iy in range(n_y) if cfg_grid[ix][iy].frost_condition]
+                if frosted and ix == 0:
+                    _solve_frost_row("edge", ix, frosted, ups, infos)
+                if frosted:
+                    _solve_frost_row("ft", ix, frosted, ups, infos)
 
-                for iy_seg in range(n_y):
-                    iy, q_val, info = _process_segment(ix, iy_seg)
-                    Q_seg_x0_list[ix, iy] = q_val
+                for iy, info in enumerate(infos):
+                    Q_seg_x0_list[ix, iy] = _air(cfg_grid[ix][iy], st_grid[ix][iy], ups[iy], info)
                     max_rh_wall_step = max(max_rh_wall_step, info["rh_wall"])
                     any_frost_condition_step = any_frost_condition_step or info["frost_condition"]
-
                     if do_print:
-                        infos_by_iy[iy] = info
+                        print(_fmt_segment_line(info))
                     elif info["stop"] or info["err"]:
                         # conditions that end the simulation are reported on every step
                         print("\n".join(info["stop"] + info["err"]))
                     if (info["stop"] or info["err"]) and self.stop_reason is None:
                         msg = (info["stop"] + info["err"])[0]
                         self.stop_reason = f"t = {t:.1f} s: " + re.sub(r"\x1b\[[0-9;]*m", "", msg)
-
-                # Print in order (iy=0..n_y-1), compact output
-
-                if do_print:
-                    for iy in range(n_y):
-                        info = infos_by_iy[iy]
-                        if info is not None:
-                            print(_fmt_segment_line(info))
-                elif not do_print and ix == 0:
+                if not do_print and ix == 0:
                     print(f"Frost and Air output in {print_every - (it % print_every)} Time Steps.")
 
             if stop_event.is_set():
@@ -417,13 +342,12 @@ class Simulator:
                 [float(p4_valve_out), float(h4_valve_out)],
             ]
 
-            T = float(PropsSI("T", "P", p1_suction, "H", h1_suction, cfg.ref_str))
-            T_sat = float(PropsSI("T", "P", p1_suction, "Q", 0, cfg.ref_str))
+            T = float(self.refrigerant.props_PH(p1_suction, h1_suction)[0])
+            T_sat = float(self.refrigerant.T_sat(p1_suction))
             SH = T-T_sat
 
-            model_e_loc, model_ft_loc = _get_thread_models()
             h_eff_vals = [
-                model_ft_loc.h_eff(cfg_ij, geom, st_ij)
+                model_ft.h_eff(cfg_ij, geom, st_ij)
                 for cfg_row, st_row in zip(cfg_grid, st_grid)
                 for cfg_ij, st_ij in zip(cfg_row, st_row)
             ]
