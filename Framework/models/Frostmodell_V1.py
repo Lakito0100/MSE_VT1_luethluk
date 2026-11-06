@@ -1,10 +1,6 @@
 import numpy as np
-import math
-from scipy.sparse import lil_matrix, csr_matrix
-from scipy.sparse.linalg import spsolve
-from scipy.linalg import solve_banded
+from scipy.linalg import get_lapack_funcs
 from Framework.core.corrolations import DK
-from CoolProp.HumidAirProp import HAPropsSI, HAProps_Aux
 
 # Picard iteration of the frost solvers: the temperature update is under-relaxed
 # with OMEGA_T_START and the factor is halved whenever the residual grows
@@ -38,9 +34,9 @@ def p_ws_Pa(T_C):
 
 
 def w_sat_vec(Tf_C, p_Pa):
-    """Saturation humidity ratio [kg/kg_da] at Tf_C (float or array), float for scalar input."""
+    """Saturation humidity ratio [kg/kg_da] at Tf_C (float or array; p_Pa may be one value per row)."""
     p_ws = p_ws_Pa(Tf_C)
-    w = 0.621945 * p_ws / (float(p_Pa) - p_ws)
+    w = 0.621945 * p_ws / (np.asarray(p_Pa, dtype=float) - p_ws)
     return float(w) if np.ndim(Tf_C) == 0 else w
 
 
@@ -60,13 +56,76 @@ def frost_density(T_surface_C, T_wall_C):
     return max(207.0 * np.exp(0.266 * T_surface_C - 0.0615 * T_wall_C), RHO_FROST_MIN)
 
 
+_gtsv = get_lapack_funcs("gtsv", (np.zeros(1),))
+
+
 def _solve_tridiag(lower, main, upper, b):
-    """Solve A x = b for tridiagonal A (lower[i] = A[i+1, i], upper[i] = A[i, i+1])."""
-    ab = np.zeros((3, main.size))
-    ab[0, 1:] = upper
-    ab[1, :] = main
-    ab[2, :-1] = lower
-    return solve_banded((1, 1), ab, b, check_finite=False)
+    """Solve A x = b for tridiagonal A (lower[i] = A[i+1, i], upper[i] = A[i, i+1]); LAPACK gtsv as in solve_banded."""
+    x, info = _gtsv(lower, main, upper, b)[3:]
+    if info:
+        raise np.linalg.LinAlgError("singular matrix")
+    return x
+
+
+def _picard_rows(T, w, d, fa, fg, D_int, k_int, k_s, D_s, h, T_wall, ups, edge, tol, niter):
+    """
+    Picard iteration of the coupled frost temperature T and humidity ratio w (arrays (k, N))
+    of k segments at once. Every segment keeps its own relaxation factor and stops at its own
+    convergence, so it follows exactly the iteration it would follow alone.
+    d (k, 1): node spacing; fa, fg ((k, 1) or (k, N-2)): factors of the upper / lower neighbour
+    in the interior equations; D_int, k_int (k, N-2): diffusivity / conductivity of the interior nodes;
+    k_s, D_s, h, T_wall (k, 1): surface conductivity / diffusivity, air-side heat transfer
+    coefficient, wall temperature; ups: upstream air states (CaseConfig) of the segments.
+    edge=True: no surface flux while the air is drier than saturation (edge model), otherwise
+    only the air-side vapour flux is zero (fin/tube model).
+    Returns T_new, w_new, the dry-air density and mass transfer coefficient of the last
+    iteration, the "air drier than surface" flag, and iterations / residuals per segment.
+    """
+    p, cp, w_amb, T_a, h_sub, C, isv = (np.array([getattr(c, n) for c in ups], dtype=float)[:, None]
+                                        for n in ("p_a", "c_p_a", "w_amb", "T_a", "h_sub", "C", "isv"))
+    k, N = T.shape
+    one, zero = np.ones((k, 1)), np.zeros((k, 1))
+    inv_d2 = 1.0 / (d * d)
+    # Temperature equation: constant matrix (the conductivity only depends on the frost density)
+    main_T = np.hstack([one, -2.0 * k_int * inv_d2, k_s / d])
+    upper_T, lower_T = np.hstack([zero, k_int * fa]), np.hstack([k_int * fg, -k_s / d])
+    T_new, w_new, rho_a, hm = np.empty_like(T), np.empty_like(w), np.empty_like(T), np.empty((k, 1))
+    neg, it = np.zeros(k, dtype=bool), np.zeros(k, dtype=int)
+    omega, res_T, res_w = np.full(k, OMEGA_T_START), np.full(k, np.inf), np.full(k, np.inf)
+    a = np.arange(k)  # segments still iterating
+    while a.size:
+        To, wo, pa = T[a], w[a], p[a]
+        rho_a[a] = ra = pa / (287.058 * (To + 273.15))
+        # Surface: saturation, vapour fluxes (air side minus diffusion into the frost), heat flux
+        Tfs, rs, wfs = To[:, -1:], ra[:, -1:], w_sat_vec(To[:, -1:], pa)
+        dw = w_amb[a] - wfs
+        neg[a] = ~(dw[:, 0] >= 0.0)
+        hm[a] = h[a] / (rs * cp[a])
+        m_f, m_rho = hm[a] * rs * dw, D_s[a] * rs * ((wo[:, -1:] - wo[:, -2:-1]) / d[a])
+        m_delta = np.where(dw >= 0.0, m_f - m_rho, 0.0) if edge else np.where(dw >= 0.0, m_f, 0.0) - m_rho
+        q_tot = h[a] * (T_a[a] - Tfs) + h_sub[a] * m_delta
+        # Humidity equation (depends on the dry-air density) and right-hand sides
+        ri, wsi = ra[:, 1:-1], w_sat_vec(To[:, 1:-1], pa)
+        A = D_int[a] * ri
+        o, z = one[:a.size], zero[:a.size]
+        main_w = np.hstack([-o, -2.0 * A * inv_d2[a] - C[a] * ri, o])
+        upper_w, lower_w = np.hstack([o, A * fa[a]]), np.hstack([A * fg[a], z])
+        b_w = np.hstack([z, -C[a] * ri * wsi, wfs])
+        b_T = np.hstack([T_wall[a], -isv[a] * C[a] * ri * (wo[:, 1:-1] - wsi), q_tot])
+        for i, j in enumerate(a):
+            T_new[j] = _solve_tridiag(lower_T[j], main_T[j], upper_T[j], b_T[i])
+            w_new[j] = _solve_tridiag(lower_w[i], main_w[i], upper_w[i], b_w[i])
+        # Convergence and adaptive under-relaxation (omega_T halves if the residual grows)
+        res_prev = res_T[a]
+        res_T[a] = np.max(np.abs(T_new[a] - To), axis=1)
+        res_w[a] = np.max(np.abs(w_new[a] - wo), axis=1)
+        omega[a] = np.where(res_T[a] > res_prev, np.maximum(0.5 * omega[a], OMEGA_T_MIN), omega[a])
+        om = omega[a][:, None]
+        T[a] = (1 - om) * To + om * T_new[a]
+        w[a] = (1 - 1.0) * wo + 1.0 * w_new[a]
+        it[a] += 1
+        a = a[(it[a] < niter) & ((res_T[a] > tol) | (res_w[a] > tol))]
+    return T_new, w_new, rho_a, hm, neg, it, res_T, res_w
 
 
 class Frostmodell_Edge:
@@ -80,7 +139,6 @@ class Frostmodell_Edge:
         Same saturation pressure as CoolProp's HAProps_Aux("p_ws"), but vectorised.
         """
         return w_sat_vec(Tf_C, p_Pa)
-        #return HAPropsSI("W", "T", Tf_K, "P", p_Pa, "R", 1.0)
 
     @staticmethod
     def Nu_edge(cfg, geom, theta):
@@ -93,11 +151,6 @@ class Frostmodell_Edge:
         """Convective heat transfer coefficient at the edge."""
         Nu = self.Nu_edge(cfg, geom, theta)
         return Nu * cfg.lam / geom.fin_pitch_cc
-
-    def q_dot_sens_fs(self, cfg, geom, st, theta):
-        """Sensible heat flux from air to frost surface."""
-        T_fs = st.T_e[-1, theta]
-        return self.h_conv(cfg, geom, theta) * (cfg.T_a - T_fs)
 
     def h_mass(self, cfg, geom, st, theta):
         """Mass transfer coefficient based on convective heat transfer."""
@@ -121,14 +174,6 @@ class Frostmodell_Edge:
         """Net vapor mass flux at the frost surface."""
         return self.m_dot_f(cfg, geom, st, theta) - self.m_dot_rho_f(cfg, geom, st, gs, theta)
 
-    def q_dot_lat_fs(self, cfg, geom, st, gs, theta):
-        """Latent heat flux at the frost surface."""
-        return cfg.h_sub * self.m_dot_s_f(cfg, geom, st, gs, theta)
-
-    def q_dot_tot_fs(self, cfg, geom, st, gs, theta):
-        """Total heat flux at the frost surface."""
-        return self.q_dot_sens_fs(cfg, geom, st, theta) + self.q_dot_lat_fs(cfg, geom, st, gs, theta)
-
     @staticmethod
     def D_eff(cfg, st, r, theta):
         """Effective diffusion coefficient in frost."""
@@ -149,352 +194,39 @@ class Frostmodell_Edge:
         return p_Pa / (R*Tf_K)
 
     def New_edge_state_seg_at_90(self, cfg_up, cfg, geom, st, gs, tol=1e-6, niter=1000):
-        """Solve the edge frost state at theta=90° for one segment."""
-        it = 0
-        res_T = res_w = np.inf
-        omega_T = OMEGA_T_START
-        j = gs.ntheta-1
-
-        # Working copies
-        T_f_old = np.asarray(st.T_e[:,j], dtype=float).copy()
-        w_f_old = np.asarray(st.w_e[:,j], dtype=float).copy()
-        T_f_new = np.empty_like(T_f_old)
-        w_f_new = np.empty_like(w_f_old)
-
-        while (it < niter) and ((res_T > tol) or (res_w > tol)):
-            # Radial grid for the 90° angle
-            r_start = 0.5 * geom.fin_thickness
-            r_end = r_start + float(st.s_e[j])
-            r = np.linspace(r_start, r_end, gs.nr)
-            N = len(r)
-            dr = r[1] - r[0]
-
-            # Local dry-air density in the frost
-            st.rho_a_e[:N, j] = self.rho_a_dry_local(T_f_old[:N], cfg_up.p_a)
-            rho_a = st.rho_a_e[:N, j]
-
-            # Boundary values at the surface
-            Tfs = T_f_old[-1]
-            wfs_sat = self.w_sat_coolprop(Tfs, cfg_up.p_a)
-
-            # Convective mass transfer
-            dw = cfg_up.w_amb - wfs_sat
-            if dw >= 0:
-                rho_a_fs = rho_a[-1]
-                h = self.h_conv(cfg_up, geom, j)
-                hm = h / (rho_a_fs * cfg_up.c_p_a)
-                m_f = hm * rho_a_fs * dw  # (9.11)
-
-                # Diffusive vapor mass in the frost at the interface
-                De_s = self.D_eff(cfg_up, st, -1, j)
-                grad_w = (w_f_old[-1] - w_f_old[-2]) / dr  # dw/dr outward
-                m_rho = De_s * rho_a_fs * grad_w  # (9.12)
-
-                m_delta = m_f - m_rho  # (9.13)
-            else:
-                rho_a_fs = rho_a[-1]
-                h = self.h_conv(cfg_up, geom, j)
-                hm = h / (rho_a_fs * cfg_up.c_p_a)
-                m_f = hm * rho_a_fs * dw  # (9.11)
-
-                # Diffusive vapor mass in the frost at the interface
-                De_s = self.D_eff(cfg_up, st, -1, j)
-                grad_w = (w_f_old[-1] - w_f_old[-2]) / dr  # dw/dr outward
-                m_rho = De_s * rho_a_fs * grad_w  # (9.12)
-                m_delta = 0.0
-
-            # Heat fluxes at the surface
-            q_sens = h * (cfg_up.T_a - Tfs)  # (9.9)
-            q_tot = q_sens + cfg_up.h_sub * m_delta  # (9.16)
-
-            # Vectorized ---------------------------------------------------------------
-            # --- RHS ---
-            b_w = np.zeros(N, dtype=float)
-            b_T = np.zeros(N, dtype=float)
-
-            # --- diagonals ---
-            lower_w = np.zeros(N - 1, dtype=float)  # A[i, i-1], i=1..N-1  -> lower_w[i-1]
-            main_w = np.zeros(N, dtype=float)  # A[i, i]
-            upper_w = np.zeros(N - 1, dtype=float)  # A[i, i+1], i=0..N-2  -> upper_w[i]
-
-            lower_T = np.zeros(N - 1, dtype=float)
-            main_T = np.zeros(N, dtype=float)
-            upper_T = np.zeros(N - 1, dtype=float)
-
-            # =========================
-            # Boundary conditions
-            # =========================
-
-            # i = 0
-            # w: Neumann dw/dr = 0 -> w1 - w0 = 0
-            main_w[0] = -1.0
-            upper_w[0] = 1.0
-            b_w[0] = 0.0
-
-            # T: Dirichlet T = T_w
-            main_T[0] = 1.0
-            b_T[0] = cfg.T_tube
-
-            # i = N-1
-            # w: Dirichlet w_fs = wfs_sat
-            main_w[-1] = 1.0
-            b_w[-1] = wfs_sat
-            lower_w[-1] = 0.0  # last row must not couple to w_{N-2}
-
-            # T: Neumann at surface: k (T_fs - T_{N-1})/dr = q_tot
-            k_s = self.k_eff(st, -1, j)
-            main_T[-1] = k_s / dr
-            lower_T[-1] = -k_s / dr
-            b_T[-1] = q_tot
-
-            # =========================
-            # Interior (vectorized)
-            # =========================
-            idx = np.arange(1, N - 1)  # 1..N-2
-            ri = r[idx]
-            rho = rho_a[idx]
-
-            inv_dr2 = 1.0 / (dr * dr)
-            inv_2rdr = 1.0 / (2.0 * ri * dr)
-
-            # ---- w equation ----
-            Deff = self.D_eff(cfg_up, st, idx, j)  # if vectorized
-
-            Aprop = Deff * rho
-
-            alpha_w = Aprop * (inv_dr2 + inv_2rdr)
-            beta_w = -2.0 * Aprop * inv_dr2 - cfg_up.C * rho
-            gamma_w = Aprop * (inv_dr2 - inv_2rdr)
-
-            upper_w[idx] = alpha_w  # row i, col i+1
-            main_w[idx] = beta_w
-            lower_w[idx - 1] = gamma_w  # row i, col i-1 stored at i-1
-
-            T_old_vec = T_f_old[idx]
-            w_sat_i = self.w_sat_coolprop(T_old_vec, cfg_up.p_a)
-
-            b_w[idx] = -cfg_up.C * rho * w_sat_i
-
-            # ---- T equation ----
-            k_i = self.k_eff(st, idx, j)
-
-            alpha_T = k_i * (inv_dr2 + inv_2rdr)
-            beta_T = -2.0 * k_i * inv_dr2
-            gamma_T = k_i * (inv_dr2 - inv_2rdr)
-
-            upper_T[idx] = alpha_T
-            main_T[idx] = beta_T
-            lower_T[idx - 1] = gamma_T
-
-            b_T[idx] = -cfg_up.isv * cfg_up.C * rho * (w_f_old[idx] - w_sat_i)
-
-            # Solve the tridiagonal systems
-            T_f_new[:] = _solve_tridiag(lower_T, main_T, upper_T, b_T)
-            w_f_new[:] = _solve_tridiag(lower_w, main_w, upper_w, b_w)
-
-            # Convergence criterion
-            res_T_prev = res_T
-            res_T = np.max(np.abs(T_f_new - T_f_old))
-            res_w = np.max(np.abs(w_f_new - w_f_old))
-
-            # Adaptive under-relaxation: reduce omega_T if the residual grows
-            if res_T > res_T_prev:
-                omega_T = max(0.5 * omega_T, OMEGA_T_MIN)
-            omega_w = 1.0
-
-            T_f_old[:] = (1 - omega_T) * T_f_old + omega_T * T_f_new
-            w_f_old[:] = (1 - omega_w) * w_f_old + omega_w * w_f_new
-
-            it += 1
-
-        # Write converged fields back to the state
-        st.T_e[:,j] = T_f_new
-        st.w_e[:,j] = w_f_new
-
-        # Update rho_a
-        st.rho_a_e[:gs.nr, j] = self.rho_a_dry_local(T_f_new[:gs.nr], cfg_up.p_a)
-
-        # --------- Explicit update of rho_e and s_e ---------
-
-        # rho_e update
-        for i in range(gs.nr):
-            st.rho_e[i, j] = frost_density(st.T_e[-1,j], cfg.T_tube)
-
-        # s_e update
-        rho_fs = st.rho_e[-1, j]
-        m_dot_sf = self.m_dot_s_f(cfg_up, geom, st, gs, j)
-        st.s_e[j] += (m_dot_sf / rho_fs) * gs.dt
-        st.s_e[j] = max(st.s_e[j], 1e-6)
-
-        return it, res_T, res_w
-
-    def New_edge_state_seg(self, cfg, geom, st, gs, tol=1e-6, niter=1000):
-        """Solve the edge frost state for all theta angles in one segment."""
-        it = 0
-        res_T = res_w = np.inf
-
-        # Working copies
-        T_f_old = np.asarray(st.T_e, dtype=float).copy()
-        w_f_old = np.asarray(st.w_e, dtype=float).copy()
-        T_f_new = np.empty_like(T_f_old)
-        w_f_new = np.empty_like(w_f_old)
-
-        while (it < niter) and ((res_T > tol) or (res_w > tol)):
-            for j in range(gs.ntheta):
-                # Radial grid for this angle
-                r_start = 0.5 * geom.fin_thickness
-                r_end = r_start + float(st.s_e[j])
-                r = np.linspace(r_start, r_end, gs.nr)
-                N = len(r)
-                dr = r[1] - r[0]
-
-                # Local dry-air density in the frost
-                st.rho_a_e[:N, j] = self.rho_a_dry_local(T_f_old[:N, j], cfg.p_a)
-                rho_a = st.rho_a_e[:N, j]
-
-                # Boundary values at the surface
-                Tfs = T_f_old[-1, j]
-                wfs_sat = self.w_sat_coolprop(Tfs, cfg.p_a)
-
-                # Convective mass transfer
-                rho_a_fs = st.rho_a_e[-1,j]
-                h = self.h_conv(cfg, geom, j)
-                hm = h / (rho_a_fs * cfg.c_p_a)
-                m_f = hm * rho_a_fs * (cfg.w_amb - wfs_sat)  # (9.11)
-
-                if m_f >= 0.0:
-                # Diffusive vapor mass in the frost at the interface
-                    De_s = self.D_eff(cfg, st, -1, j)
-                    grad_w = (w_f_old[-1, j] - w_f_old[-2, j]) / dr  # dw/dr outward
-                    m_rho = De_s * rho_a[-1] * grad_w  # (9.12)
-                    m_delta = m_f - m_rho  # (9.13)
-                    check_m_delta = False
-                else:
-                    De_s = self.D_eff(cfg, st, -1, j)
-                    grad_w = (w_f_old[-1, j] - w_f_old[-2, j]) / dr  # dw/dr outward
-                    m_rho = De_s * rho_a[-1] * grad_w  # (9.12)
-                    m_delta = 0.0
-                    check_m_delta = True
-
-                # Heat fluxes at the surface
-                q_sens = h * (cfg.T_a - Tfs)  # (9.9)
-                q_tot = q_sens + cfg.h_sub * m_delta  # (9.16)
-
-                # System matrices for w and T
-                A_w = lil_matrix((N, N), dtype=float)
-                b_w = np.zeros(N)
-                A_T = lil_matrix((N, N), dtype=float)
-                b_T = np.zeros(N)
-
-                for i in range(N):
-                    if i == 0:
-                        # Wall BC
-                        # w: Neumann dw/dr = 0  -> w1 - w0 = 0
-                        A_w[i, i] = -1.0
-                        A_w[i, i+1] = 1.0
-                        b_w[i] = 0.0
-
-                        # T: Dirichlet T = T_w
-                        A_T[i, i] = 1.0
-                        b_T[i] = cfg.T_tube
-
-                    elif i == N - 1:
-                        # Surface w: Dirichlet w_fs = w_sat(T_fs)
-                        A_w[i, i] = 1.0
-                        b_w[i] = wfs_sat
-
-                        # Surface T: k (T_fs - T_{N-1}) / dr = q_tot
-                        k_s = self.k_eff(st, -1, j)
-                        A_T[i, i] = k_s / dr
-                        A_T[i, i - 1] = -k_s / dr
-                        b_T[i] = q_tot
-
-                    else:
-                        r_i = r[i]
-                        rho_ij = rho_a[i]
-
-                        # ---- Mass equation (w) ----
-                        Deff_ij = self.D_eff(cfg, st, i, j)
-                        Aprop = Deff_ij * rho_ij  # "D_eff * rho_a" at node i
-
-                        alpha_w = Aprop * (1.0 / dr ** 2 + 1.0 / (2.0 * r_i * dr))
-                        beta_w = -2.0 * Aprop / dr ** 2 - cfg.C * rho_ij
-                        gamma_w = Aprop * (1.0 / dr ** 2 - 1.0 / (2.0 * r_i * dr))
-
-                        A_w[i, i + 1] = alpha_w
-                        A_w[i, i] = beta_w
-                        A_w[i, i - 1] = gamma_w
-
-                        w_sat_i = self.w_sat_coolprop(T_f_old[i, j], cfg.p_a)
-                        b_w[i] = -cfg.C * rho_ij * w_sat_i
-
-                        # ---- Energy equation (T) ----
-                        k_i = self.k_eff(st, i, j)
-
-                        alpha_T = k_i * (1.0 / dr ** 2 + 1.0 / (2.0 * r_i * dr))
-                        beta_T = -2.0 * k_i / dr ** 2
-                        gamma_T = k_i * (1.0 / dr ** 2 - 1.0 / (2.0 * r_i * dr))
-
-                        A_T[i, i + 1] = alpha_T
-                        A_T[i, i] = beta_T
-                        A_T[i, i - 1] = gamma_T
-
-                        b_T[i] = -cfg.isv * cfg.C * rho_ij * (w_f_old[i, j] - w_sat_i)
-
-                # Solve linear systems
-                T_f_new[:, j] = spsolve(csr_matrix(A_T), b_T)
-                w_f_new[:, j] = spsolve(csr_matrix(A_w), b_w)
-
-            # Convergence criterion
-            res_T = np.max(np.abs(T_f_new - T_f_old))
-            res_w = np.max(np.abs(w_f_new - w_f_old))
-
-            # Under-relaxation for stability
-
-            omega_T = 0.1 # save stabil: 0.1
-            omega_w = 1.0
-
-            T_f_old[:] = (1 - omega_T) * T_f_old + omega_T * T_f_new
-            w_f_old[:] = (1 - omega_w) * w_f_old + omega_w * w_f_new
-
-            it += 1
-
-        # Write converged fields back to the state
-        st.T_e = T_f_new
-        st.w_e = w_f_new
-
-        # Update rho_a
-        for j in  range(gs.ntheta):
-            st.rho_a_e[:gs.nr, j] = self.rho_a_dry_local(T_f_new[:gs.nr, j], cfg.p_a)
-
-        if check_m_delta:
-            print(f"\033[31mNegative moisture mass flow detected, setting m_delta = 0!\033[0m")
-
-        # --------- Explicit update of rho_e and s_e ---------
-
-        N, ntheta = w_f_new.shape
-
-        # rho_e update
-        for j in range(ntheta):
-            for i in range(N):
-                st.rho_e[i, j] = frost_density(st.T_e[-1,j], cfg.T_tube)
-
-        # s_e update
-        for j in range(ntheta):
-            rho_fs = st.rho_e[-1, j]
-            m_dot_sf = self.m_dot_s_f(cfg, geom, st, gs, j)
-            st.s_e[j] += (m_dot_sf / rho_fs) * gs.dt
-            st.s_e[j] = max(st.s_e[j], 1e-6)
-
-        return it, res_T, res_w
+        """Solve the edge frost state at theta=90° for one segment; returns (iterations, res_T, res_w)."""
+        return self.New_edge_state_row_at_90([cfg_up], [cfg], geom, [st], gs, tol, niter)[0]
+
+    def New_edge_state_row_at_90(self, cfg_ups, cfgs, geom, sts, gs, tol=1e-6, niter=1000):
+        """Edge frost state at theta=90° for several segments at once; returns [(iterations, res_T, res_w)]."""
+        j, idx = gs.ntheta - 1, np.arange(1, gs.nr - 1)
+        r0 = 0.5 * geom.fin_thickness
+        r = np.array([np.linspace(r0, r0 + float(st.s_e[j]), gs.nr) for st in sts])  # radial grid per segment
+        dr = r[:, 1:2] - r[:, 0:1]
+        inv_dr2, inv_2rdr = 1.0 / (dr * dr), 1.0 / (2.0 * r[:, idx] * dr)
+        col = lambda vals: np.array(vals, dtype=float)[:, None]
+        T_new, w_new, *_, it, res_T, res_w = _picard_rows(
+            np.array([st.T_e[:, j] for st in sts]), np.array([st.w_e[:, j] for st in sts]), dr,
+            inv_dr2 + inv_2rdr, inv_dr2 - inv_2rdr,
+            np.array([self.D_eff(c, st, idx, j) for c, st in zip(cfg_ups, sts)]),
+            np.array([self.k_eff(st, idx, j) for st in sts]),
+            col([self.k_eff(st, -1, j) for st in sts]), col([self.D_eff(c, st, -1, j) for c, st in zip(cfg_ups, sts)]),
+            col([self.h_conv(c, geom, j) for c in cfg_ups]), col([c.T_tube for c in cfgs]), cfg_ups, True, tol, niter)
+
+        # Write back, then explicit update of frost density and thickness
+        for n, (c_up, c, st) in enumerate(zip(cfg_ups, cfgs, sts)):
+            st.T_e[:, j], st.w_e[:, j] = T_new[n], w_new[n]
+            st.rho_a_e[:gs.nr, j] = self.rho_a_dry_local(T_new[n][:gs.nr], c_up.p_a)
+            st.rho_e[:, j] = frost_density(st.T_e[-1, j], c.T_tube)
+            st.s_e[j] = max(st.s_e[j] + (self.m_dot_s_f(c_up, geom, st, gs, j) / st.rho_e[-1, j]) * gs.dt, 1e-6)
+        return list(zip(it, res_T, res_w))
 
 class Frostmodell_Finn_and_Tube:
     """Frost model for the fin-and-tube domain."""
 
     def __init__(self):
-        # Set by New_finn_and_tube_state_seg: True if the air-side vapor flux was
-        # negative in the last call (m_f set to 0). Read by the simulator, which
-        # reports it in the ordered segment output instead of printing from threads.
+        # Set by New_finn_and_tube_state_seg: True if the air-side vapour flux was
+        # negative in the last call (m_f set to 0)
         self.last_negative_mass_flux = False
 
     @staticmethod
@@ -505,7 +237,6 @@ class Frostmodell_Finn_and_Tube:
         Same saturation pressure as CoolProp's HAProps_Aux("p_ws"), but vectorised.
         """
         return w_sat_vec(Tf_C, p_Pa)
-        #return HAPropsSI("W", "T", Tf_K, "P", p_Pa, "R", 1.0)
 
     @staticmethod
     def rho_a_dry_local(Tf_C, p_Pa):
@@ -549,353 +280,52 @@ class Frostmodell_Finn_and_Tube:
         h_eff = h_0 * (A_G/A + mue_fin*A_R/A)
         return h_eff
 
-    def h_moist_da_Jpkg(self,T_C: float, w: float) -> float:
-        """Moist air enthalpy per kg dry air [J/kg_da], T in °C."""
-        return 1000.0 * (1.006 * T_C + w * (2501.0 + 1.86 * T_C))
-
-    def T_from_h_w_C(self,h_Jpkg: float, w: float) -> float:
-        """Invert h = (1.006 + 1.86 w) T + 2501 w  (kJ/kg_da) for T in °C."""
-        denom = 1000.0 * (1.006 + 1.86 * w)
-        return (h_Jpkg - 1000.0 * 2501.0 * w) / denom
-
     def New_finn_and_tube_state_seg(self, cfg_up, cfg, geom, st, gs, tol=1e-6, niter=1000):
-        """Solve fin-and-tube frost state for one segment."""
-        it = 0
-        res_T = res_w = np.inf
-        omega_T = OMEGA_T_START
-
-        # Working copies
-        T_f_old = np.asarray(st.T_ft, dtype=float).copy()
-        w_f_old = np.asarray(st.w_ft, dtype=float).copy()
-        T_f_new = np.empty_like(T_f_old)
-        w_f_new = np.empty_like(w_f_old)
-
-        N = gs.nx
-
-        # Current frost grid in x-direction
-        delta_f = max(float(st.s_ft), 1e-6)
-        x = np.linspace(0.0, delta_f, N)
-        dx = x[1] - x[0]
-
-        # Effective air-side heat transfer
-        h_eff = self.h_eff(cfg_up, geom, st)
-
-
-        while (it < niter) and ((res_T > tol) or (res_w > tol)):
-
-            # Local dry-air density in the frost
-            st.rho_a_ft[:] = self.rho_a_dry_local(T_f_old, cfg_up.p_a)
-            rho_a = st.rho_a_ft
-
-            # Systemmatrizen
-            #A_w = lil_matrix((N, N), dtype=float)
-            #b_w = np.zeros(N)
-            #A_T = lil_matrix((N, N), dtype=float)
-            #b_T = np.zeros(N)
-
-            # Temperature and saturation state at the surface
-            Tfs = float(T_f_old[-1])
-            wfs_sat = self.w_sat_coolprop(Tfs, cfg_up.p_a)
-
-            # Mass fluxes (air side + diffusive in the frost)
-            rho_a_sf = self.rho_a_dry_local(Tfs, cfg_up.p_a)
-            hm_eff = h_eff / (rho_a_sf * cfg_up.c_p_a)  # mass transfer coefficient
-
-            dw = cfg_up.w_amb - wfs_sat
-            if dw >= 0.0:
-                m_f = hm_eff * rho_a_sf * dw
-                Deff_s = self.D_eff(cfg_up, st, N - 1)
-                grad_w = (w_f_old[-1] - w_f_old[-2]) / dx
-                m_rho = Deff_s * rho_a[-1] * grad_w
-                m_delta = m_f - m_rho
-                check_m_delta = False
-            else:
-                m_f = 0.0
-                Deff_s = self.D_eff(cfg_up, st, N - 1)
-                grad_w = (w_f_old[-1] - w_f_old[-2]) / dx
-                m_rho = Deff_s * rho_a[-1] * grad_w
-                m_delta = m_f - m_rho
-                check_m_delta = True
-
-            # w_out = 1.0
-            # w_sat_air_check = 0.0
-            # air_it = 0
-
-            #while w_sat_air_check*(1.0 + 1e-4) < w_out and air_it < 100:
-
-            # Heat fluxes
-            q_sens_fs = h_eff * (cfg_up.T_a - Tfs)
-            q_lat_fs = cfg_up.h_sub * m_delta
-            q_tot_fs = q_sens_fs + q_lat_fs
-
-                # # Check whether on saturation line ---------------------------------------------------------------
-                # T_in = cfg_up.T_a
-                # w_in = cfg_up.w_amb
-                # p_in = cfg_up.p_a
-                #
-                # # Prefer dry-air mass flow because w is defined per kg dry air
-                # m_dot_a = cfg_up.m_dot / (geom.n_seg_r * geom.stacks)
-                # m_dot_ha = m_dot_a
-                # m_dot_da = m_dot_ha / (1.0 + w_in)
-                #
-                # # 1) moisture update
-                # w_out = w_in - m_delta*geom.A_one_segment() / m_dot_da
-                # w_out = max(w_out, 0.0)
-                #
-                # # 2) enthalpy update (TOTAL heat Q_seg includes latent)
-                # h_in = self.h_moist_da_Jpkg(T_in, w_in)
-                # h_out = h_in - q_tot_fs*geom.A_one_segment() / m_dot_da
-                #
-                # # 3) compute outlet temperature from (h_out, w_out)
-                # T_out = self.T_from_h_w_C(h_out, w_out)
-                #
-                # w_sat_air_check = self.w_sat_coolprop(T_out, p_in)
-
-                # if w_sat_air_check < w_out:
-                #     m_dot_delta = (w_out - w_sat_air_check)*m_dot_da/geom.A_one_segment()
-                #     m_delta += 0.5 * m_dot_delta
-                #     m_delta = max(m_delta, 0.0)
-                #
-                #     # Heat fluxes
-                #     q_sens_fs = h_eff * (cfg_up.T_a - Tfs)
-                #     q_lat_fs = cfg_up.h_sub * m_delta
-                #     q_tot_fs = q_sens_fs + q_lat_fs
-                #
-                # air_it += 1
-
-            # ----------------------------------------------------------------------------------------------------------
-
-            # Temperature at the frost surface
-            h_0 = self.alpha_tube(cfg_up,geom)
-            mue_fin = geom.mue_fin(h_0)
-            #T_s_fs = cfg.T_a - (mue_fin*geom.A_fin_one_segment())*(cfg.T_a-cfg.T_tube)/(geom.A_one_segment())
-
-            # --- RHS ---
-            b_w = np.zeros(N, dtype=float)
-            b_T = np.zeros(N, dtype=float)
-
-            # --- diagonals ---
-            lower_w = np.zeros(N - 1, dtype=float)  # A[i, i-1] stored at lower_w[i-1]
-            main_w = np.zeros(N, dtype=float)  # A[i, i]
-            upper_w = np.zeros(N - 1, dtype=float)  # A[i, i+1] stored at upper_w[i]
-
-            lower_T = np.zeros(N - 1, dtype=float)
-            main_T = np.zeros(N, dtype=float)
-            upper_T = np.zeros(N - 1, dtype=float)
-
-            inv_dx2 = 1.0 / (dx * dx)
-
-            # =========================
-            # Boundary conditions
-            # =========================
-
-            # i = 0
-            # w: Neumann dw/dx = 0 -> w1 - w0 = 0
-            main_w[0] = -1.0
-            upper_w[0] = 1.0
-            b_w[0] = 0.0
-
-            # T: Dirichlet T = T_tube
-            main_T[0] = 1.0
-            b_T[0] = cfg.T_tube
-            #k_f_0 = self.k_f(st, 0)
-            #a_frost = k_f_0/dx
-            #a_tube = geom.lambda_fin*2/geom.tube_thickness
-            #b_T[0] = (a_frost * T_f_old[1] + a_tube * cfg.T_tube)/(a_frost + a_tube)
-
-            # i = N-1
-            # w: Dirichlet w_fs = wfs_sat
-            main_w[-1] = 1.0
-            b_w[-1] = wfs_sat
-            lower_w[-1] = 0.0  # last row must not couple to w_{N-2}
-
-            # T: Neumann at surface: k (T_fs - T_{N-1})/dx = q_tot_fs
-            k_eff_s = self.k_f(st, N - 1)
-            main_T[-1] = k_eff_s / dx
-            lower_T[-1] = -k_eff_s / dx
-            b_T[-1] = q_tot_fs
-
-            # =========================
-            # Interior (vectorized)
-            # =========================
-            idx = np.arange(1, N - 1)  # 1..N-2
-            rho = rho_a[idx]
-
-            # Deff, k_eff vectors
-            Deff = self.D_eff(cfg_up, st, idx)  # if vectorized
-
-            k_eff = self.k_f(st, idx)  # if vectorized
-
-            Aprop = Deff * rho  # Deff_i * rho_a_i
-
-            alpha_w = Aprop * inv_dx2
-            beta_w = -2.0 * Aprop * inv_dx2 - cfg_up.C * rho
-            gamma_w = Aprop * inv_dx2  # same as alpha_w here
-
-            upper_w[idx] = alpha_w
-            main_w[idx] = beta_w
-            lower_w[idx - 1] = gamma_w
-
-            # saturation w at interior nodes
-            T_old_vec = T_f_old[idx]
-            w_sat_i = self.w_sat_coolprop(T_old_vec, cfg_up.p_a)
-
-            b_w[idx] = -cfg_up.C * rho * w_sat_i
-
-            # ---- T equation ----
-            alpha_T = k_eff * inv_dx2
-            beta_T = -2.0 * k_eff * inv_dx2
-            gamma_T = k_eff * inv_dx2
-
-            upper_T[idx] = alpha_T
-            main_T[idx] = beta_T
-            lower_T[idx - 1] = gamma_T
-
-            b_T[idx] = -cfg_up.isv * cfg_up.C * rho * (w_f_old[idx] - w_sat_i)
-
-            # Solve the tridiagonal systems
-            T_f_new[:] = _solve_tridiag(lower_T, main_T, upper_T, b_T)
-            w_f_new[:] = _solve_tridiag(lower_w, main_w, upper_w, b_w)
-
-            # Convergence assessment
-            res_T_prev = res_T
-            res_T = np.max(np.abs(T_f_new - T_f_old))
-            res_w = np.max(np.abs(w_f_new - w_f_old))
-
-            # Adaptive under-relaxation: reduce omega_T if the residual grows
-            if res_T > res_T_prev:
-                omega_T = max(0.5 * omega_T, OMEGA_T_MIN)
-            omega_w = 1.0
-
-            T_f_old[:] = (1 - omega_T) * T_f_old + omega_T * T_f_new
-            w_f_old[:] = (1 - omega_w) * w_f_old + omega_w * w_f_new
-
-            it += 1
-
-        # Compute heat flux
-        #Q_sens = q_sens_fs*geom.A_one_segment()
-        #Q_tot = Q_sens + cfg_up.h_sub*m_delta*geom.A_one_segment()
-
-
-        # Write back converged fields
-        st.T_ft = T_f_new.copy()
-        st.w_ft = w_f_new.copy()
-
-        for i in range(N):
-            st.rho_ft[i] = frost_density(st.T_ft[-1], cfg.T_tube)
-
-        # Thickness growth at the surface
-        Tfs = st.T_ft[-1]
-        # wfs_sat = self.w_sat_coolprop(Tfs, cfg_up.p_a)
-        rho_a_s = self.rho_a_dry_local(Tfs, cfg_up.p_a)
-        Deff_s = self.D_eff(cfg_up, st, N - 1)
-        grad_w_s = (st.w_ft[-1] - st.w_ft[-2]) / dx
-
-        self.last_negative_mass_flux = bool(check_m_delta)
-        if check_m_delta:
-            m_rho_s = Deff_s * rho_a_s * grad_w_s
-            m_f_s = 0.0
-            m_delta_s = m_f_s - m_rho_s
-        else:
-            m_rho_s = Deff_s * rho_a_s * grad_w_s
-            m_f_s = hm_eff * st.rho_a_ft[-1] * (cfg_up.w_amb - st.w_ft[-1])
-            m_delta_s = m_f_s - m_rho_s
-
-        rho_fs = st.rho_ft[-1]
-        st.s_ft += (m_delta_s / rho_fs) * gs.dt
-        st.s_ft = max(st.s_ft, 1e-6)
-
+        """Solve the fin-and-tube frost state for one segment; returns (iterations, res_T, res_w)."""
+        it, res_T, res_w, self.last_negative_mass_flux = self.New_finn_and_tube_state_row([cfg_up], [cfg], geom, [st], gs, tol, niter)[0]
         return it, res_T, res_w
 
-    def _segment_surface_fluxes(self, cfg, geom, st, gs):
+    def New_finn_and_tube_state_row(self, cfg_ups, cfgs, geom, sts, gs, tol=1e-6, niter=1000):
         """
-        Compute area-specific fluxes at the frost surface
-        of the fin-and-tube domain for this segment.
-
-        Returns:
-            q_tot_fs  [W/m²]       - total heat flux from air -> frost
-            m_fs   [kg/(m² s)]  - water vapor mass flux -> frost
+        Fin-and-tube frost state for several segments at once.
+        Returns [(iterations, res_T, res_w, negative air-side vapour flux)] per segment.
         """
-        N = gs.nx
-        if N < 2:
-            return 0.0, 0.0
+        N, idx = gs.nx, np.arange(1, gs.nx - 1)
+        col = lambda vals: np.array(vals, dtype=float)[:, None]
+        x = [np.linspace(0.0, max(float(st.s_ft), 1e-6), N) for st in sts]  # frost grid per segment
+        dx = col([xi[1] - xi[0] for xi in x])
+        inv_dx2 = 1.0 / (dx * dx)
+        T_new, w_new, rho_a, hm, neg, it, res_T, res_w = _picard_rows(
+            np.array([st.T_ft for st in sts], dtype=float), np.array([st.w_ft for st in sts], dtype=float), dx,
+            inv_dx2, inv_dx2, np.array([self.D_eff(c, st, idx) for c, st in zip(cfg_ups, sts)]),
+            np.array([self.k_f(st, idx) for st in sts]), col([self.k_f(st, N - 1) for st in sts]),
+            col([self.D_eff(c, st, N - 1) for c, st in zip(cfg_ups, sts)]),
+            col([self.h_eff(c, geom, st) for c, st in zip(cfg_ups, sts)]), col([c.T_tube for c in cfgs]),
+            cfg_ups, False, tol, niter)
 
-        # Effective air-side heat transfer
+        # Write back, then explicit update of frost density and thickness growth at the surface
+        for n, (c_up, c, st) in enumerate(zip(cfg_ups, cfgs, sts)):
+            st.T_ft, st.w_ft = T_new[n].copy(), w_new[n].copy()
+            st.rho_a_ft[:] = rho_a[n]
+            st.rho_ft[:] = frost_density(st.T_ft[-1], c.T_tube)
+            m_rho_s = self.D_eff(c_up, st, N - 1) * self.rho_a_dry_local(st.T_ft[-1], c_up.p_a) * ((st.w_ft[-1] - st.w_ft[-2]) / dx[n, 0])
+            m_f_s = 0.0 if neg[n] else hm[n, 0] * st.rho_a_ft[-1] * (c_up.w_amb - st.w_ft[-1])
+            st.s_ft = max(st.s_ft + ((m_f_s - m_rho_s) / st.rho_ft[-1]) * gs.dt, 1e-6)
+        return list(zip(it, res_T, res_w, neg))
+
+    def segment_flows(self, cfg, geom, st, gs):
+        """
+        Flows between the air (upstream state cfg) and the frost of one segment:
+        (vapour mass flow into the frost [kg/s], sensible heat flow from the air [W],
+         heat flow into the wall [W], sensible heat flow for the frost-free case [W]).
+        """
         h_eff = self.h_eff(cfg, geom, st)
-
-
-        # Current frost grid in x-direction
-        delta_f = max(float(st.s_ft), 1e-6)
-        dx = delta_f / (N - 1)
-
-        # Values at the frost surface
-        Tfs = float(st.T_ft[-1])
-        wfs = float(st.w_ft[-1])
-
-        # Saturation state + gradients in the frost
+        dx = max(float(st.s_ft), 1e-6) / (gs.nx - 1)
+        Tfs, wfs = float(st.T_ft[-1]), float(st.w_ft[-1])
         rho_a_s = self.rho_a_dry_local(Tfs, cfg.p_a)
-        Deff_s = self.D_eff(cfg, st, N - 1)
-        grad_w = (st.w_ft[-1] - st.w_ft[-2]) / dx
-
-        # Mass fluxes (air side + diffusive in the frost)
-        hm_eff = h_eff / (rho_a_s * cfg.c_p_a)
-
         dw = cfg.w_amb - wfs
-        if dw >= 0.0:
-            m_fs = hm_eff * rho_a_s * dw  # [kg/(m² s)]
-            m_rho = Deff_s * rho_a_s * grad_w  # [kg/(m² s)]
-            m_delta = m_fs - m_rho  # [kg/(m² s)]
-        else:
-            m_fs = 0.0  # [kg/(m² s)]
-            m_rho = Deff_s * rho_a_s * grad_w  # [kg/(m² s)]
-            m_delta = m_fs - m_rho  # [kg/(m² s)]
-            #print(f"\033[31mNegative moisture mass flow detected, setting m_delta = 0!\033[0m")
-
-        # m_x0 = cfg.C * st.rho_ft[0]*(st.w_ft[0]-self.w_sat_coolprop(st.T_ft[0], cfg.p_a))*dx
-
-        # Heat fluxes
+        m_fs = h_eff / (rho_a_s * cfg.c_p_a) * rho_a_s * dw if dw >= 0.0 else 0.0  # [kg/(m² s)]
         q_sens_fs = h_eff * (cfg.T_a - Tfs)  # [W/m²]
-        q_tot_fs = q_sens_fs + cfg.h_sub * m_fs  # [W/m²]
-        #q_tot_fs_2 = self.k_f(st, -1) * (Tfs - st.T_ft[-2]) / dx
-
-        #q_tot_x0 = q_sens_fs + cfg.h_sub * m_x0
-        q_tot_x0_2 = self.k_f(st, 0) * (st.T_ft[1] - st.T_ft[0])/dx
-
-        # Heat flow for steady state
-        q_steady = q_sens_fs
-
-        return q_sens_fs, q_tot_x0_2, m_fs, q_steady
-
-    def segment_mass_flux_air_frost(self, cfg, geom, st, gs):
-        """
-        Integrated water-vapor mass flow into frost for a segment.
-
-        Returns:
-            m_s_seg [kg/s]
-        """
-        q_sens_fs, q_tot_x0, m_fs, q_steady = self._segment_surface_fluxes(cfg, geom, st, gs)
-
-        A_seg = geom.A_one_segment_frost(st.s_ft)
-        m_s_seg = m_fs * A_seg  # [kg/s]
-
-        return m_s_seg
-
-    def segment_heat_flux_air_frost(self, cfg, geom, st, gs):
-        """
-        Integrated heat flow from air into the frost of a segment.
-
-        Returns:
-            Q_seg_fs [W]
-            Q_seg_x0 [W]
-        """
-        q_sens_fs, q_tot_x0, m_fs, q_steady = self._segment_surface_fluxes(cfg, geom, st, gs)
-
-        A_seg = geom.A_one_segment()
+        q_x0 = self.k_f(st, 0) * (st.T_ft[1] - st.T_ft[0]) / dx  # conduction into the wall [W/m²]
         A_seg_frost = geom.A_one_segment_frost(st.s_ft)
-        Q_sens_fs = q_sens_fs * A_seg_frost  # [W]
-        Q_seg_x0 = q_tot_x0 * A_seg  # [W]
-
-        # For steady state
-        Q_steady = q_steady * A_seg_frost
-
-        return Q_sens_fs, Q_seg_x0, Q_steady
+        return m_fs * A_seg_frost, q_sens_fs * A_seg_frost, q_x0 * geom.A_one_segment(), q_sens_fs * A_seg_frost
